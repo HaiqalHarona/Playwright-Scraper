@@ -2,6 +2,7 @@
 from playwright.sync_api import sync_playwright, ProxySettings, Route
 from playwright_stealth import Stealth
 from stores.scraper.site_lazada import run_lazada
+from stores.checkout.lazada_site_buy import buy_item
 import os
 
 # Resource types to always block — never needed for scraping and waste bandwidth.
@@ -45,7 +46,10 @@ def start_browser_and_route(store_name, action, target_url):
         page.route("**/*", _block_resources)
 
         if store_name.lower() == "lazada":
-            result = run_lazada(page, action, target_url)
+            if action == "scrape":
+                result = run_lazada(page, action, target_url)
+            elif action == "buy":
+                result = buy_item(page, target_url)
 
         elif store_name.lower() == "amazon":
             result = ""

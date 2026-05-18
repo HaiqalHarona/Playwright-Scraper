@@ -141,7 +141,7 @@ def _check_stock_on_detail_page(page, product):
 
 def _save_results(products, url):
     # Get base project directory
-    project_root = os.path.dirname(os.path.dirname(__file__))
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     readable_time = datetime.now().strftime("%d-%m-%Y_%H-%M")
 
     # 1. Save Full Results
