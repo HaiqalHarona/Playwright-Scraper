@@ -1,33 +1,12 @@
-# stores/site_lazada.py
+# stores/scraper/site_lazada.py
 # ---------------------------------------------------------------------
-# This is the Lazada module. It handles the two main things:
-# 1. The buying flow (logging in, adding to cart, and checking out).
-# 2. The scraping flow (opening the store, detail-checking every product).
+# The scraping flow (opening the store, detail-checking every product).
 # ---------------------------------------------------------------------
 
 import json
 import os
 from datetime import datetime
 from utils import random_delay
-
-# =====================================================================
-#  BUYING HELPERS
-# =====================================================================
-
-
-def login(page, username, password):
-    print("-> [Lazada] Attempting to log in...")
-    page.wait_for_timeout(1000)
-
-
-def add_item_to_cart(page, url):
-    print(f"-> [Lazada] Navigating to product: {url}")
-    page.goto(url)
-    print("-> [Lazada] Clicking 'Add to Cart'...")
-
-
-def proceed_to_checkout(page):
-    print("-> [Lazada] Clicking 'Checkout'...")
 
 
 # =====================================================================
@@ -124,7 +103,7 @@ def _check_stock_on_detail_page(page, product):
         return product
 
     try:
-        # 1.5s delay to avoid triggering CAPTCHA as requested
+        # 1.5s delay to avoid triggering CAPTCHA
         page.wait_for_timeout(1500)
 
         print(f"   [Detail Check] Checking: {product['name'][:40]}...")
@@ -249,7 +228,7 @@ def scrape_item_data(page, url):
     final_products = []
     for p in unique_products:
         # Extra pause between items to stay under the radar
-        random_delay(2, 5)
+        random_delay()
         final_products.append(_check_stock_on_detail_page(page, p))
 
     for i, p in enumerate(final_products, start=1):
@@ -262,9 +241,7 @@ def scrape_item_data(page, url):
 def run_lazada(page, action, target_url):
     print(f"=== Running Lazada Bot | Action: {action.upper()} ===")
     try:
-        if action == "buy":
-            return "DONE"
-        elif action == "scrape":
+        if action == "scrape":
             products = scrape_item_data(page, target_url)
             return f"DONE: Found {len(products)} total items."
     except Exception as e:

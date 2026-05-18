@@ -1,7 +1,7 @@
 # bot_logic.py
 from playwright.sync_api import sync_playwright, ProxySettings, Route
 from playwright_stealth import Stealth
-from stores.site_lazada import run_lazada
+from stores.scraper.site_lazada import run_lazada
 import os
 
 # Resource types to always block — never needed for scraping and waste bandwidth.
