@@ -50,6 +50,8 @@ def start_browser_and_route(store_name, action, target_url):
                 result = run_lazada(page, action, target_url)
             elif action == "buy":
                 result = buy_item(page, target_url)
+            else:
+                result = f"Error: '{action}' is not a supported action for Lazada."
 
         elif store_name.lower() == "amazon":
             result = ""
