@@ -6,3 +6,4 @@
 !/data/logs/.gitkeep
 __pycache__/
 *.pyc
+.rooignore
