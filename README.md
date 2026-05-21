@@ -30,6 +30,7 @@ A powerful automated shopping bot built with Playwright that can monitor product
 ## Features
 
 - **Automated product monitoring and purchasing**
+- **Scrape-to-buy pipeline** — scan a category page, find in-stock products, and buy them automatically
 - **Multi-account parallel execution**
 - **Scheduled release time support**
 - **Auto-login with fallback to manual login**
@@ -173,7 +174,7 @@ Open the `.env` file in a text editor and configure the following:
 
 **Basic Settings:**
 - `STORE_NAME` - The e-commerce platform (currently supports "Lazada")
-- `ACTION` - Set to "buy" for purchasing or "scrape" for monitoring
+- `ACTION` - Set to `buy` for purchasing, `scrape` for monitoring, or `buy_scrape` to scan a category page and auto-buy all matching in-stock products
 - `TARGET_QUANTITY` - Number of items to purchase (default: 1)
 
 **Timing Settings:**
@@ -193,6 +194,8 @@ For each account you want to use, configure:
 
 Replace `X` with account number (1, 2, 3, etc.). You can configure multiple accounts for parallel execution.
 
+> **For `buy_scrape` mode:** `ACCOUNT_X_URL` is optional — the scrape target comes from `SCRAPER_TARGET_URL`. Only `ACCOUNT_X_EMAIL` and `ACCOUNT_X_PASSWORD` are needed for login. Each account independently scrapes and buys from the same `SCRAPER_TARGET_URL`.
+
 **Example:**
 ```
 ACCOUNT_1_URL=https://www.lazada.sg/products/example-product-i1234567890.html
@@ -205,7 +208,9 @@ ACCOUNT_1_PASSWORD=mySecurePassword123
 
 ### Step 3: Scraper Configuration (Optional)
 
-These settings only apply when `ACTION=scrape`. They control how the bot monitors products and collects data. All have sensible defaults and none are required — the scraper works out of the box.
+These settings apply when `ACTION=scrape` or `ACTION=buy_scrape`. They control how the bot monitors products and collects data. All have sensible defaults and none are required — the scraper works out of the box.
+
+In **`buy_scrape` mode**, the scraper runs first to find in-stock products, then the bot logs in and purchases each matching product automatically.
 
 **Basic Scraper Settings:**
 - `SCRAPER_STORE_NAME` - Store to scrape (default: uses `STORE_NAME`)
@@ -235,6 +240,33 @@ SCRAPER_DELAY=2.0
 SCRAPER_CONTINUOUS_MODE=true
 SCRAPER_LOOP_INTERVAL=300
 ```
+
+**Example `.env` snippet for buy_scrape mode:**
+```env
+ACTION=buy_scrape
+SCRAPER_TARGET_URL=https://www.lazada.sg/shop-gaming-laptops/
+SCRAPER_PRODUCT_NAMES=RTX 4090,RTX 4080
+SCRAPER_DELAY=2.0
+SCRAPER_MAX_PAGES=3
+
+# Account credentials (URL not needed — bot uses SCRAPER_TARGET_URL)
+ACCOUNT_1_EMAIL=myemail@example.com
+ACCOUNT_1_PASSWORD=mySecurePassword123
+
+TARGET_QUANTITY=1
+```
+
+**How buy_scrape works step by step:**
+1. Bot navigates to `SCRAPER_TARGET_URL` (category/search page)
+2. Scrolls to load all product cards, extracts name + price + link for each
+3. Filters by `SCRAPER_PRODUCT_NAMES` (case-insensitive substring on visible text)
+4. Visits each matching product's detail page to check stock status
+5. Logs in with `ACCOUNT_X_EMAIL` / `ACCOUNT_X_PASSWORD`
+6. Calls `buy_item()` on every in-stock product's link — **buys immediately** (scraper already confirmed stock; no polling/waiting)
+
+> **Accounts vs. products:** One account buys ALL matching in-stock products sequentially. If 3 products match and are in stock, 1 account buys all 3 (not 1 per account). Multiple accounts are for parallel redundancy — each account independently scrapes and attempts to buy all matches, increasing your odds.
+>
+> **Timing note:** `RELEASE_TIME` and `REFRESH_LEAD_SECONDS` have no effect in `buy_scrape` mode. The scraper runs immediately, and once a product is confirmed in stock, `buy_item()` purchases it right away — no countdown, no polling loop. If you need scheduled execution, launch the bot via Task Scheduler / cron at the desired time.
 
 **Where scraped data is saved:**
 - Full results: `data/scrapes/run_logs/lazada_scrape-[timestamp].json`

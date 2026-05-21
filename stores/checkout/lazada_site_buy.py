@@ -49,6 +49,7 @@ SEL_PLACE_ORDER = (
     "[class*='checkout-order-total'] button, [class*='submit-order'] button, "
     "[class*='checkout-submit'] button, [class*='order-submit'] button, "
     # Text-based selectors (multiple variations)
+    "button:has-text('Place Order Now'), button:has-text('PLACE ORDER NOW'), "
     "button:has-text('PLACE ORDER'), button:has-text('Place Order'), "
     "button:has-text('Proceed to pay'), button:has-text('Proceed to Pay'), "
     "button:has-text('Pay Now'), button:has-text('PAY NOW'), "
@@ -96,20 +97,33 @@ def _scroll_for_lazy_load(page: Page) -> None:
         print(f"[Sniper] Scroll error: {e}")
 
 
-def _scroll_scrollable_containers(page: Page) -> None:
+def _scroll_scrollable_containers(page: Page, to_bottom: bool = False) -> None:
     # Checkout sometimes scrolls inside a panel, not the window.
     try:
-        page.evaluate(
-            """() => {
-                for (const el of document.querySelectorAll(
-                    '[class*="checkout"], main, [role="main"], [class*="scroll"]'
-                )) {
-                    if (el.scrollHeight > el.clientHeight + 40) {
-                        el.scrollTop = el.scrollHeight;
+        if to_bottom:
+            page.evaluate(
+                """() => {
+                    for (const el of document.querySelectorAll(
+                        '[class*="checkout"], main, [role="main"], [class*="scroll"]'
+                    )) {
+                        if (el.scrollHeight > el.clientHeight + 40) {
+                            el.scrollTop = el.scrollHeight;
+                        }
                     }
-                }
-            }"""
-        )
+                }"""
+            )
+        else:
+            page.evaluate(
+                """() => {
+                    for (const el of document.querySelectorAll(
+                        '[class*="checkout"], main, [role="main"], [class*="scroll"]'
+                    )) {
+                        if (el.scrollHeight > el.clientHeight + 40) {
+                            el.scrollTop += Math.round(el.clientHeight * 0.6);
+                        }
+                    }
+                }"""
+            )
     except Exception as e:
         print(f"[Sniper] Container scroll error: {e}")
 
@@ -124,7 +138,7 @@ def _scroll_until_visible(page: Page, locator, max_steps: int = 10) -> bool:
             pass
         page.evaluate(f"window.scrollBy(0, {step_px})")
         time.sleep(0.25)
-    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    # Final pass — scroll inner containers without jumping to absolute bottom
     _scroll_scrollable_containers(page)
     time.sleep(0.35)
     try:
@@ -282,6 +296,7 @@ def _click_place_order(page: Page, max_retries: int = 3) -> None:
             
             # Try multiple candidate strategies
             candidates = [
+                ("Exact Text 'Place Order Now'", page.locator("button:has-text('Place Order Now'), button:has-text('PLACE ORDER NOW'), button:has-text('place order now')")),
                 ("Role-based", page.get_by_role("button", name=re.compile(r"(place\s*order|proceed\s*to\s*pay|pay\s*now|pay|checkout|submit|confirm)", re.I))),
                 ("CSS Selector", page.locator(SEL_PLACE_ORDER)),
                 ("Text Contains 'pay'", page.locator("button:has-text('pay'), button:has-text('Pay'), button:has-text('PAY')")),
@@ -367,13 +382,29 @@ def _handle_checkout(page: Page) -> str:
     except Exception as e:
         return f"ERROR: Cannot access page state: {e}"
     
+    # Maximize viewport so the Place Order button is visible without scrolling
+    print("[Sniper] Maximizing viewport to reveal Place Order button...")
+    try:
+        page.set_viewport_size({"width": 1920, "height": 1080})
+        time.sleep(0.5)
+    except Exception as e:
+        print(f"[Sniper] Viewport resize failed (non-critical): {e}")
+    
     # Minimal wait - just ensure basic DOM is loaded
     print(f"[Sniper] Current URL: {page.url}")
     try:
         page.wait_for_load_state("domcontentloaded", timeout=5000)
-        time.sleep(0.5)  # Brief pause for dynamic content
+        time.sleep(1.0)  # Longer pause for dynamic content to render
     except Exception as e:
         print(f"[Sniper] Load state wait failed (non-critical): {e}")
+
+    # Single moderate scroll to bring sticky Place Order footer into view
+    print("[Sniper] Scrolling slightly to reveal Place Order button...")
+    try:
+        page.evaluate("window.scrollBy(0, 500)")
+        time.sleep(0.3)
+    except Exception as e:
+        print(f"[Sniper] Scroll error (non-critical): {e}")
 
     # # Default address is pre-selected by Lazada; just verify it's visible.
     # print("[Sniper] Checking for address element...")

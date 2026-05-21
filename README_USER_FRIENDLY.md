@@ -208,10 +208,11 @@ STORE_NAME=Lazada
 ACTION=buy
 ```
 **What this is:** What you want the bot to do
-**Options:** 
-- `buy` = Automatically purchase the product
+**Options:**
+- `buy` = Automatically purchase a specific product (you provide the exact product URL)
 - `scrape` = Just monitor and collect data (no purchasing)
-**Set to:** `buy` if you want to purchase, `scrape` if you just want to watch
+- `buy_scrape` = Scan a category/search page for products, find which ones are in stock, and automatically buy all matching in-stock products
+**Set to:** `buy` if you know the exact product URL, `scrape` to just monitor, `buy_scrape` to auto-find and buy
 
 ```
 TARGET_QUANTITY=1
@@ -254,13 +255,15 @@ This is where you tell the bot which product to buy and which account to use.
 
 You can set up multiple accounts (Account 1, Account 2, etc.). Each account will run in its own browser window at the same time.
 
-**For Account 1:**
+**For `buy_scrape` mode:** You don't need `ACCOUNT_X_URL` — the bot uses `SCRAPER_TARGET_URL` (from the scraper settings below) to find products. You only need to provide `ACCOUNT_X_EMAIL` and `ACCOUNT_X_PASSWORD` for login. Each account independently scans the same target page and buys whatever it finds in stock.
+
+**For Account 1 (`buy` mode):**
 
 ```
 ACCOUNT_1_URL=https://www.lazada.sg/products/your-product-here.html
 ```
 **What this is:** The exact web address of the product you want to buy
-**How to get it:** 
+**How to get it:**
 1. Go to Lazada in your regular browser
 2. Find the product you want
 3. Copy the URL from the address bar
@@ -301,9 +304,9 @@ PROXY_URL=
 **Most users:** Leave this empty
 **If you have a proxy:** Enter it like `http://proxy.example.com:8080`
 
-#### Scraper Settings (Only When Using Scrape Mode)
+#### Scraper Settings (For Scrape & Buy_Scrape Modes)
 
-These settings only matter if you set `ACTION=scrape`. In scrape mode, instead of buying, the bot monitors product pages and collects data about what's in stock. All of these are optional — the scraper works fine with defaults.
+These settings matter when `ACTION=scrape` or `ACTION=buy_scrape`. In scrape mode, the bot monitors products and collects data. In buy_scrape mode, it scans for products and **automatically buys** any that are in stock and match your target names. All settings are optional — the scraper works fine with defaults.
 
 ```
 SCRAPER_TARGET_URL=https://www.lazada.sg/shop-laptops/
@@ -357,6 +360,48 @@ SCRAPER_MAX_PAGES=0
 The bot saves results automatically to:
 - **Full results:** `data/scrapes/run_logs/` — every product checked, with stock status
 - **In-stock only:** `data/scrapes/in_stock/` — just the products that are available
+
+#### Complete Buy_Scrape Setup Example
+
+Here's exactly what your `.env` should look like to use `buy_scrape` mode:
+
+```env
+# Basic Settings
+STORE_NAME=Lazada
+ACTION=buy_scrape
+
+# Scraper Settings
+SCRAPER_TARGET_URL=https://www.lazada.sg/shop-gaming-laptops/
+SCRAPER_PRODUCT_NAMES=RTX 4090,RTX 4080
+SCRAPER_DELAY=2.0
+SCRAPER_MAX_PAGES=3
+SCRAPER_CONTINUOUS_MODE=false
+
+# Purchase Settings
+TARGET_QUANTITY=1
+
+# Account (URL is optional in buy_scrape mode)
+ACCOUNT_1_EMAIL=your.email@example.com
+ACCOUNT_1_PASSWORD=yourPassword123
+
+# Optional: second account for parallel buying
+ACCOUNT_2_EMAIL=another.email@example.com
+ACCOUNT_2_PASSWORD=anotherPassword456
+```
+
+**What happens step by step:**
+
+1. **Bot starts** — opens a browser window (visible so you can intervene if needed)
+2. **Scrape phase** — navigates to `SCRAPER_TARGET_URL`, scrolls to load all product cards, extracts every product's name, price, and link
+3. **Name filter** — keeps only products whose visible title contains any of your `SCRAPER_PRODUCT_NAMES` (case-insensitive, no regex). E.g. `RTX 4090` matches "ASUS RTX 4090 Gaming OC"
+4. **Stock check** — visits each matching product's detail page, checks for "Out of Stock" text or disabled "Add to Cart" button
+5. **Login** — logs into Lazada with your `ACCOUNT_1_EMAIL` / `ACCOUNT_1_PASSWORD` (manual if CAPTCHA appears)
+6. **Buy** — for every in-stock product found, automatically opens its page and buys immediately (no waiting/polling — the scraper already confirmed it's in stock)
+7. **Result** — prints a summary like "DONE: 2/3 products purchased successfully"
+
+**Important — accounts are NOT 1-to-1 with products:** One account buys ALL matching products sequentially. If `SCRAPER_PRODUCT_NAMES=RTX 4090,RTX 4080,iPhone` and all 3 are in stock, a single account buys all 3 one after another. You do NOT need 3 accounts for 3 products. Multiple accounts simply run the same scrape-and-buy operation in parallel for redundancy (both try to buy all matching products independently).
+
+**Timing settings (`RELEASE_TIME` / `REFRESH_LEAD_SECONDS`) are ignored in buy_scrape mode.** The scraper finds products and buys them immediately — there's no countdown or polling. If you need the bot to run at a specific time, schedule it with Windows Task Scheduler or cron instead of using `RELEASE_TIME`.
 
 ### Save Your Settings
 

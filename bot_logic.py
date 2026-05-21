@@ -3,7 +3,7 @@
 
 from playwright.sync_api import sync_playwright, ProxySettings, Route, BrowserContext
 from playwright_stealth import Stealth
-from stores.scraper.site_lazada import run_lazada
+from stores.scraper.site_lazada import run_lazada, scrape_item_data
 from stores.checkout.lazada_site_buy import buy_item
 from datetime import datetime
 import os
@@ -237,8 +237,8 @@ def start_browser_and_route(
         ProxySettings(server=proxy_url) if proxy_url else None
     )
 
-    # Buy = headful (user can see & intervene); scrape = headless to save resources.
-    headless_mode = action != "buy"
+    # Buy / Buy_Scrape = headful (user can see & intervene); scrape = headless to save resources.
+    headless_mode = action not in ("buy", "buy_scrape")
 
     print(f"\n[Traffic Cop] Launching browser — {action.upper()} on {store_name}...")
     if proxy_config:
@@ -257,7 +257,7 @@ def start_browser_and_route(
 
         page = context.new_page()
 
-        # Block CSS/images only during scrape — checkout needs a full render.
+        # Block CSS/images only during standalone scrape — checkout needs a full render.
         if action == "scrape":
             page.route("**/*", _block_resources)
             print("[Traffic Cop] Mode: Headless / Bandwidth-Saver")
@@ -270,6 +270,66 @@ def start_browser_and_route(
             if store_name.lower() == "lazada":
                 if action == "scrape":
                     result = run_lazada(page, action, target_url)
+
+                elif action == "buy_scrape":
+                    # --- Phase 1: Scrape the target URL for in-stock products ---
+                    print("\n[Traffic Cop] ========================================")
+                    print("[Traffic Cop]  BUY_SCRAPE: Phase 1 — Scraping products")
+                    print("[Traffic Cop] ========================================")
+                    scraped_products = scrape_item_data(page, target_url)
+                    in_stock = [p for p in scraped_products if not p.get('is_out_of_stock', True)]
+
+                    if not in_stock:
+                        result = "FAILED: No in-stock products found matching your criteria."
+                        print(f"[Traffic Cop] {result}")
+                        return result
+
+                    print(f"\n[Traffic Cop] Found {len(in_stock)} in-stock products:")
+                    for p in in_stock:
+                        print(f"  - {p['name'][:60]} | {p['price']}")
+
+                    # --- Phase 2: Login for purchasing ---
+                    print("\n[Traffic Cop] ========================================")
+                    print("[Traffic Cop]  BUY_SCRAPE: Phase 2 — Login")
+                    print("[Traffic Cop] ========================================")
+                    print("[Traffic Cop] Checking Lazada login session...")
+                    try:
+                        page.goto("https://www.lazada.sg", wait_until="domcontentloaded", timeout=30_000)
+                    except Exception as e:
+                        result = f"ERROR: Failed to load Lazada homepage: {e}"
+                        print(f"[Traffic Cop] {result}")
+                        return result
+
+                    if not _is_lazada_logged_in(context, page):
+                        _handle_login(page, context, email, password)
+                    else:
+                        print("[Traffic Cop] Active session found — proceeding.")
+
+                    # --- Phase 3: Buy each in-stock product ---
+                    print("\n[Traffic Cop] ========================================")
+                    print("[Traffic Cop]  BUY_SCRAPE: Phase 3 — Purchasing")
+                    print("[Traffic Cop] ========================================")
+                    buy_results = []
+                    for i, product in enumerate(in_stock, 1):
+                        print(f"\n[Traffic Cop] >>> Buying product {i}/{len(in_stock)}: {product['name'][:60]}")
+                        try:
+                            buy_result = buy_item(
+                                page=page,
+                                target_url=product['link'],
+                                release_time=None,
+                                refresh_lead_seconds=0,
+                                target_quantity=target_quantity,
+                                test_refresh_duration=0,
+                            )
+                            buy_results.append(buy_result)
+                            print(f"[Traffic Cop] <<< Result: {buy_result}")
+                        except Exception as e:
+                            err_msg = f"ERROR: buy_item crashed on '{product['name'][:40]}': {e}"
+                            buy_results.append(err_msg)
+                            print(f"[Traffic Cop] {err_msg}")
+
+                    successes = [r for r in buy_results if r.startswith("SUCCESS")]
+                    result = f"DONE: {len(successes)}/{len(in_stock)} products purchased successfully."
 
                 elif action == "buy":
                     # Open Lazada home so cookies are readable, then check session.

@@ -38,8 +38,12 @@ def load_env(env_path=".env"):
                 os.environ[key.strip()] = val.strip()
 
 
-def parse_accounts():
-    """Extract valid account configurations from environment variables."""
+def parse_accounts(require_url=True):
+    """Extract valid account configurations from environment variables.
+    
+    require_url — if True, only return accounts that have a URL set.
+                   if False, return accounts that have an email set (for buy_scrape).
+    """
     accounts = {}
     for key, val in os.environ.items():
         match = re.match(r"ACCOUNT_(\d+)_(URL|EMAIL|PASSWORD)", key)
@@ -52,10 +56,17 @@ def parse_accounts():
 
     valid_accounts = {}
     for idx, data in accounts.items():
-        if "url" in data:
-            data["email"] = data.get("email", "")
-            data["password"] = data.get("password", "")
-            valid_accounts[idx] = data
+        if require_url:
+            if "url" in data:
+                data["email"] = data.get("email", "")
+                data["password"] = data.get("password", "")
+                valid_accounts[idx] = data
+        else:
+            # buy_scrape mode: accounts need email, URL comes from SCRAPER_TARGET_URL
+            if "email" in data:
+                data["url"] = data.get("url", "")
+                data["password"] = data.get("password", "")
+                valid_accounts[idx] = data
     return dict(sorted(valid_accounts.items()))
 
 
@@ -119,7 +130,7 @@ def main():
                 except ValueError:
                     print(f"[Warning] Invalid RELEASE_TIME format '{release_time_str}'. Running immediately.")
 
-    accounts = parse_accounts()
+    accounts = parse_accounts(require_url=(action != "buy_scrape"))
 
     display_menu(store, action, release_time, refresh_lead, len(accounts))
 
@@ -128,8 +139,8 @@ def main():
         print("\n[Warning] No parallel accounts configured in .env.")
         print("          Falling back to single-run mode using default values.")
         
-        # Use scraper-specific URL if in scrape mode
-        if action == "scrape":
+        # Use scraper-specific URL if in scrape or buy_scrape mode
+        if action in ("scrape", "buy_scrape"):
             fallback_url = os.getenv("SCRAPER_TARGET_URL", os.getenv("STORE_URL_1", os.getenv("STORE_URL", "https://www.lazada.sg")))
         else:
             fallback_url = os.getenv("STORE_URL_1", os.getenv("STORE_URL", "https://www.lazada.sg"))
@@ -166,8 +177,14 @@ def main():
         thread_name = f"Account-{acc_idx}"
         threading.current_thread().name = thread_name
         
+        # For buy_scrape, use SCRAPER_TARGET_URL instead of account-specific URL
+        if action == "buy_scrape":
+            target_url = os.getenv("SCRAPER_TARGET_URL", config.get("url", ""))
+        else:
+            target_url = config["url"]
+        
         print(f"Launching instance...")
-        print(f"Target URL: {config['url']}")
+        print(f"Target URL: {target_url}")
         if config.get("email"):
             print(f"Email     : {config['email']}")
         
@@ -175,7 +192,7 @@ def main():
             status = start_browser_and_route(
                 store_name=store,
                 action=action,
-                target_url=config["url"],
+                target_url=target_url,
                 release_time=release_time,
                 refresh_lead_seconds=refresh_lead,
                 target_quantity=qty,
