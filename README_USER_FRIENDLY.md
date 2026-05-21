@@ -301,6 +301,63 @@ PROXY_URL=
 **Most users:** Leave this empty
 **If you have a proxy:** Enter it like `http://proxy.example.com:8080`
 
+#### Scraper Settings (Only When Using Scrape Mode)
+
+These settings only matter if you set `ACTION=scrape`. In scrape mode, instead of buying, the bot monitors product pages and collects data about what's in stock. All of these are optional — the scraper works fine with defaults.
+
+```
+SCRAPER_TARGET_URL=https://www.lazada.sg/shop-laptops/
+```
+**What this is:** The category or search page to scan for products
+**Set to:** Any Lazada search/category URL
+
+```
+SCRAPER_PRODUCT_NAMES=
+```
+**What this is:** Filter to only check specific products (leave empty to scan everything)
+**How matching works:** It uses **plain text, case-insensitive, visible text** matching — no regex. For example, typing `RTX 4090` will match any product whose title contains "rtx 4090" (like "ASUS RTX 4090 Gaming OC"). Separate multiple names with commas: `RTX 4090,RTX 4080,iPhone 15`
+
+```
+SCRAPER_DELAY=1.5
+```
+**What this is:** How long to wait (in seconds) between checking each product's detail page
+**Why this matters:** Slower = less likely to hit CAPTCHA. Recommended 1.5–3.0 seconds
+
+```
+SCRAPER_RANDOM_DELAY=true
+```
+**What this is:** Adds random variation to delays so the bot looks more human
+**Recommendation:** Keep as `true`
+
+```
+SCRAPER_SCROLL_COUNT=3
+```
+**What this is:** How many times to scroll down each page (loads more products)
+**Higher number** = more products found but slower
+
+```
+SCRAPER_CONTINUOUS_MODE=true
+```
+**What this is:** Keep scanning in a loop instead of running once and stopping
+**Set to:** `true` if you want to monitor for new stock over time, `false` for a one-time scan
+
+```
+SCRAPER_LOOP_INTERVAL=30
+```
+**What this is:** Seconds to wait between scan cycles (only applies when continuous mode is on)
+**Recommended:** 300–600 seconds (5–10 minutes)
+
+```
+SCRAPER_MAX_PAGES=0
+```
+**What this is:** Maximum number of result pages to scan (0 = scan all pages)
+
+#### Where Scraped Data is Saved
+
+The bot saves results automatically to:
+- **Full results:** `data/scrapes/run_logs/` — every product checked, with stock status
+- **In-stock only:** `data/scrapes/in_stock/` — just the products that are available
+
 ### Save Your Settings
 
 After editing, press **Ctrl+S** (Windows) or **Cmd+S** (Mac) to save the file.

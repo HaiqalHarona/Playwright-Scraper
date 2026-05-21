@@ -82,6 +82,12 @@ def main():
     store = os.getenv("STORE_NAME", "Lazada")
     action = os.getenv("ACTION", "buy")
     
+    # Use scraper-specific store name if in scrape mode
+    if action == "scrape":
+        scraper_store = os.getenv("SCRAPER_STORE_NAME", "")
+        if scraper_store:
+            store = scraper_store
+    
     try:
         qty = int(os.getenv("TARGET_QUANTITY", "1"))
     except ValueError:
@@ -122,7 +128,12 @@ def main():
         print("\n[Warning] No parallel accounts configured in .env.")
         print("          Falling back to single-run mode using default values.")
         
-        fallback_url = os.getenv("STORE_URL_1", os.getenv("STORE_URL", "https://www.lazada.sg"))
+        # Use scraper-specific URL if in scrape mode
+        if action == "scrape":
+            fallback_url = os.getenv("SCRAPER_TARGET_URL", os.getenv("STORE_URL_1", os.getenv("STORE_URL", "https://www.lazada.sg")))
+        else:
+            fallback_url = os.getenv("STORE_URL_1", os.getenv("STORE_URL", "https://www.lazada.sg"))
+        
         fallback_email = os.getenv("ACCOUNT_1_EMAIL", "")
         fallback_password = os.getenv("ACCOUNT_1_PASSWORD", "")
             

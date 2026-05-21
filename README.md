@@ -203,6 +203,43 @@ ACCOUNT_1_PASSWORD=mySecurePassword123
 **Proxy Settings (Optional):**
 - `PROXY_URL` - HTTP/HTTPS proxy URL if needed (leave empty if not using proxy)
 
+### Step 3: Scraper Configuration (Optional)
+
+These settings only apply when `ACTION=scrape`. They control how the bot monitors products and collects data. All have sensible defaults and none are required — the scraper works out of the box.
+
+**Basic Scraper Settings:**
+- `SCRAPER_STORE_NAME` - Store to scrape (default: uses `STORE_NAME`)
+- `SCRAPER_TARGET_URL` - URL of the search/category page to scrape (required for scrape mode)
+
+**Product Filtering:**
+- `SCRAPER_PRODUCT_NAMES` - Comma-separated product names to monitor (leave empty to scrape all products). Matching is **case-insensitive, visible text, substring** — not regex. For example, `RTX 4090` will match a product named "ASUS RTX 4090 Gaming OC Edition"
+
+**Delay & Anti-Detection:**
+- `SCRAPER_DELAY` - Seconds to wait between each product detail check (default: `1.5`; recommended 1.5–3.0)
+- `SCRAPER_RANDOM_DELAY` - Add random variation to delays for human-like behavior (default: `true`)
+
+**Page Loading:**
+- `SCRAPER_SCROLL_COUNT` - How many times to scroll down per page to trigger lazy loading (default: `5`)
+- `SCRAPER_MAX_PAGES` - Max pagination pages to scrape (default: `0` = unlimited)
+
+**Continuous Monitoring:**
+- `SCRAPER_CONTINUOUS_MODE` - Keep scraping in an infinite loop (default: `false`)
+- `SCRAPER_LOOP_INTERVAL` - Seconds to wait between cycles when continuous mode is on (default: `300`, i.e. 5 minutes)
+
+**Example `.env` snippet for scrape mode:**
+```env
+ACTION=scrape
+SCRAPER_TARGET_URL=https://www.lazada.sg/shop-gaming-laptops/
+SCRAPER_PRODUCT_NAMES=RTX 4090,RTX 4080
+SCRAPER_DELAY=2.0
+SCRAPER_CONTINUOUS_MODE=true
+SCRAPER_LOOP_INTERVAL=300
+```
+
+**Where scraped data is saved:**
+- Full results: `data/scrapes/run_logs/lazada_scrape-[timestamp].json`
+- In-stock only: `data/scrapes/in_stock/lazada_in_stock-[timestamp].json`
+
 ## Running the Bot
 
 ### Activate Virtual Environment
