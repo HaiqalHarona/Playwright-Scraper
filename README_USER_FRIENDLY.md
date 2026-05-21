@@ -329,30 +329,23 @@ python main.py
 
 ### What Happens Next
 
-1. **Configuration Display:** The bot will show you all your settings and ask you to confirm
-
-<div align="center">
-  <img src="data/screenshots/config-menu.png" alt="Configuration Display" width="700"/>
-  <p><em>The bot displays your configuration before starting</em></p>
-</div>
-
-2. **Browser Windows Open:** One browser window will open for each account you configured
+1. **Browser Windows Open:** One browser window will open for each account you configured
 
 <div align="center">
   <img src="data/screenshots/bot-execution.png" alt="Browser Windows" width="700"/>
   <p><em>Multiple browser windows running in parallel</em></p>
 </div>
 
-3. **Login Attempt:** The bot will try to log in automatically
+2. **Login Attempt:** The bot will try to log in automatically
    - If successful, you'll see "Auto-login succeeded!"
    - If it fails (maybe there's a CAPTCHA), you'll see "PLEASE SIGN IN MANUALLY" - just log in yourself in the browser window
-4. **Waiting Period:** If you set a RELEASE_TIME, the bot will wait until that time
-5. **Monitoring:** The bot starts refreshing the product page, checking if it's in stock
-6. **Purchase:** When the product is available, the bot automatically:
+3. **Waiting Period:** If you set a RELEASE_TIME, the bot will wait until that time
+4. **Monitoring:** The bot starts refreshing the product page, checking if it's in stock
+5. **Purchase:** When the product is available, the bot automatically:
    - Clicks "Buy Now"
    - Goes to checkout
    - Clicks "Place Order"
-7. **Completion:** You'll see a summary showing if the purchase was successful
+6. **Completion:** You'll see a summary showing if the purchase was successful
 
 ### Reading the Messages
 
