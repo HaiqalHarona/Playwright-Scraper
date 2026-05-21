@@ -2,9 +2,24 @@
 
 A powerful automated shopping bot built with Playwright that can monitor product availability and automatically purchase items when they come in stock. Supports scheduled releases and multi-account parallel execution.
 
+<div align="center">
+  <img src="data/screenshots/bot-running.png" alt="Bot in Action" width="800"/>
+  <p><em>The bot monitoring multiple accounts simultaneously</em></p>
+</div>
+
+---
+
+## Documentation
+
+**[User-Friendly Guide](README_USER_FRIENDLY.md)** - Step-by-step setup with detailed explanations of every command (no technical jargon!)
+
+---
+
 ## Table of Contents
 
 - [Features](#features)
+- [Screenshots](#screenshots)
+- [Quick Start](#quick-start)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Configuration](#configuration)
@@ -14,12 +29,40 @@ A powerful automated shopping bot built with Playwright that can monitor product
 
 ## Features
 
-- Automated product monitoring and purchasing
-- Multi-account parallel execution
-- Scheduled release time support
-- Auto-login with fallback to manual login
-- Stealth mode to avoid detection
-- Detailed logging and status reporting
+- **Automated product monitoring and purchasing**
+- **Multi-account parallel execution**
+- **Scheduled release time support**
+- **Auto-login with fallback to manual login**
+- **Stealth mode to avoid detection**
+- **Detailed logging and status reporting**
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%">
+      <h3 align="center">Configuration Menu</h3>
+      <img src="data/screenshots/config-menu.png" alt="Configuration Menu"/>
+      <p align="center"><em>Initial configuration display showing store, action, and account settings</em></p>
+    </td>
+    <td width="50%">
+      <h3 align="center">Bot Execution</h3>
+      <img src="data/screenshots/bot-execution.png" alt="Bot Execution"/>
+      <p align="center"><em>Browser windows running in parallel for multiple accounts</em></p>
+    </td>
+  </tr>
+</table>
+
+## Quick Start
+
+For complete beginners, see the [User-Friendly Guide](README_USER_FRIENDLY.md) for detailed step-by-step instructions.
+
+1. **Install Python** - [Download here](https://www.python.org/downloads/)
+2. **Clone/Download this project**
+3. **Open in VSCode** (recommended) or any terminal
+4. **Run setup commands** (detailed below)
+5. **Configure your `.env` file**
+6. **Run the bot:** `python main.py`
 
 ## Prerequisites
 
