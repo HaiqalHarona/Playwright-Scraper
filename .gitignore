@@ -1,6 +1,5 @@
 /.venv/
 .env
-/data/screenshots/*
 !/data/screenshots/.gitkeep
 /data/logs/*
 !/data/logs/.gitkeep
