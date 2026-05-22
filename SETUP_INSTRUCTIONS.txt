@@ -1,0 +1,39 @@
+===========================================
+  E-COMMERCE SNIPE BOT - SETUP INSTRUCTIONS
+===========================================
+
+ONE-TIME SETUP (do this once):
+
+1. Open Command Prompt or PowerShell
+2. Navigate to where you want the project:
+   cd Desktop
+
+3. Clone the repo:
+   git clone https://github.com/HaiqalHarona/Commisioned-Bot.git
+
+4. Enter the project folder:
+   cd Commisioned-Bot
+
+5. Create virtual environment and install everything:
+   python -m venv .venv
+   .venv\Scripts\python.exe -m pip install -r requirements.txt
+   .venv\Scripts\python.exe -m playwright install chromium
+
+6. Copy .env.example to .env and fill in your settings:
+   copy .env.example .env
+   (then open .env in Notepad and fill in your account details)
+
+
+EVERY TIME THERE'S AN UPDATE (pull latest changes):
+
+1. Open Command Prompt in the project folder (Commisioned-Bot)
+2. Run:
+   git pull
+
+3. If requirements.txt changed, reinstall:
+   .venv\Scripts\python.exe -m pip install -r requirements.txt
+
+
+TO RUN THE BOT:
+
+   .venv\Scripts\python.exe main.py

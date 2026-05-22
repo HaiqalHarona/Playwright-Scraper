@@ -1,0 +1,12 @@
+# Force UTF-8 encoding for all text files
+* text=auto eol=lf
+
+# Explicitly mark requirements.txt as UTF-8 text
+requirements.txt text working-tree-encoding=UTF-8
+
+# Python files
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.txt text eol=lf
