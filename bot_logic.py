@@ -276,15 +276,35 @@ def start_browser_and_route(
                     print("\n[Traffic Cop] ========================================")
                     print("[Traffic Cop]  BUY_SCRAPE: Phase 1 — Scraping products")
                     print("[Traffic Cop] ========================================")
-                    scraped_products = scrape_item_data(page, target_url)
-                    in_stock = [p for p in scraped_products if not p.get('is_out_of_stock', True)]
+                    # Check for continuous retry mode
+                    continuous = os.getenv("SCRAPER_CONTINUOUS_MODE", "false").lower() == "true"
+                    try:
+                        retry_interval = int(os.getenv("SCRAPER_LOOP_INTERVAL", "60"))
+                    except ValueError:
+                        retry_interval = 60
+                    
+                    scrape_attempt = 0
+                    in_stock = []
+                    while True:
+                        scrape_attempt += 1
+                        print(f"\n[Traffic Cop] Scrape attempt #{scrape_attempt}...")
+                        scraped_products = scrape_item_data(page, target_url)
+                        in_stock = [p for p in scraped_products if not p.get('is_out_of_stock', True)]
 
-                    if not in_stock:
-                        result = "FAILED: No in-stock products found matching your criteria."
-                        print(f"[Traffic Cop] {result}")
-                        return result
+                        if in_stock:
+                            print(f"\n[Traffic Cop] Found {len(in_stock)} in-stock products on attempt #{scrape_attempt}!")
+                            break
 
-                    print(f"\n[Traffic Cop] Found {len(in_stock)} in-stock products:")
+                        if not continuous:
+                            result = "FAILED: No in-stock products found matching your criteria."
+                            print(f"[Traffic Cop] {result}")
+                            return result
+
+                        print(f"[Traffic Cop] No in-stock products yet. Waiting {retry_interval}s before retry...")
+                        page.reload(wait_until="domcontentloaded", timeout=30_000)
+                        time.sleep(retry_interval)
+
+                    print(f"\n[Traffic Cop] In-stock products found:")
                     for p in in_stock:
                         print(f"  - {p['name'][:60]} | {p['price']}")
 
