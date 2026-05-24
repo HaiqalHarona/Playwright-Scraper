@@ -8,6 +8,7 @@ import os
 import time
 from datetime import datetime
 from utils import random_delay
+from captcha_solver import resolve_any_captcha
 
 
 # =====================================================================
@@ -155,10 +156,15 @@ def _check_stock_on_detail_page(page, product, config):
         page.goto(product["link"], wait_until="domcontentloaded", timeout=15000)
 
         # Check for CAPTCHA wall
-        if page.query_selector("#nc_1_n1z") or "verification" in page.url:
-            print("      [!] Hit CAPTCHA. Retrying with a longer wait...")
-            page.wait_for_timeout(5000)
-            page.reload()
+        if page.query_selector("#nc_1_n1z") or "verification" in page.url or page.query_selector("img[src*='captcha']"):
+            print("      [!] Hit CAPTCHA. Running automated solver...")
+            solved = resolve_any_captcha(page)
+            if not solved:
+                print("      [!] Automated captcha bypass failed. Retrying with a longer wait...")
+                page.wait_for_timeout(5000)
+                page.reload()
+            else:
+                print("      [!] CAPTCHA wall successfully bypassed!")
 
         page_text_lower = page.inner_text("body").lower()
         is_sold_out = False

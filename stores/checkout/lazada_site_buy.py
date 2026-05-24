@@ -3,6 +3,7 @@ from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
 from datetime import datetime
 import re
 import time
+from captcha_solver import resolve_any_captcha
 
 
 # --- Timeouts (ms) and delays (s) ---
@@ -437,9 +438,15 @@ def _handle_checkout(page: Page) -> str:
 
     # Click Place Order (sticky footer — must scroll into view before click).
     try:
+        print("[Sniper] Sweeping for captchas before placing order...")
+        resolve_any_captcha(page)
+        
         print("[Sniper] Scrolling down to find Place Order button...")
         _click_place_order(page)
         time.sleep(_POST_CLICK_DELAY * 2)
+        
+        print("[Sniper] Sweeping for post-click verification captchas...")
+        resolve_any_captcha(page)
     except PlaywrightTimeout:
         print("[Sniper] ERROR: Place Order button not found — keeping browser open for manual intervention.")
         input("\n>>> Press ENTER to close the browser and continue... <<<\n")
@@ -568,6 +575,10 @@ def buy_item(
             popup_page.wait_for_load_state("domcontentloaded", timeout=_NAVIGATION_TIMEOUT)
             page = popup_page  # Use the popup page for checkout
         
+        # Solve any verification sliders that block navigation after clicking Buy Now
+        print("[Sniper] Sweeping for sliders blocking navigation after Buy Now...")
+        resolve_any_captcha(page)
+
         # Verify page is still alive after Buy Now click
         try:
             if page.is_closed():

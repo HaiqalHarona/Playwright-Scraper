@@ -3,6 +3,7 @@
 
 from playwright.sync_api import sync_playwright, ProxySettings, Route, BrowserContext
 from playwright_stealth import Stealth
+from captcha_solver import resolve_any_captcha
 from stores.scraper.site_lazada import run_lazada, scrape_item_data
 from stores.checkout.lazada_site_buy import buy_item
 from datetime import datetime
@@ -133,6 +134,12 @@ def _handle_login(page, context: BrowserContext, email: str = "", password: str 
                 pass_el.click()
                 pass_el.fill("")
                 pass_el.type(password, delay=60)
+                
+                # Check for active slide or image captchas and solve them dynamically
+                solved_captcha = resolve_any_captcha(page)
+                if solved_captcha:
+                    print("[Traffic Cop] Captcha solver executed successfully. Bypassing blocker...")
+                    time.sleep(1.0)
                 
                 # Check for slider captcha wrapper before clicking submit
                 slider_selectors = [
