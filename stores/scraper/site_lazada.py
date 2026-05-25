@@ -259,6 +259,7 @@ def scrape_item_data(page, url, config=None):
         config = _get_scraper_config()
     
     _navigate_to_page(page, url)
+    resolve_any_captcha(page)  # sweep on initial page load
 
     grid_products = []
     current_page = 1
@@ -292,6 +293,7 @@ def scrape_item_data(page, url, config=None):
             if btn:
                 btn.click()
                 page.wait_for_timeout(3000)
+                resolve_any_captcha(page)  # sweep after pagination
                 current_page += 1
                 continue
         break

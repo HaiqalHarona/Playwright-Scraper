@@ -165,6 +165,8 @@ def main():
             test_refresh_duration=test_dur,
             email=fallback_email,
             password=fallback_password,
+            acc_idx=1,
+            total_accounts=1,
         )
         print(f"\n>>> FINAL STATUS: {final_status} <<<\n")
         return
@@ -199,6 +201,8 @@ def main():
                 test_refresh_duration=test_dur,
                 email=config["email"],
                 password=config["password"],
+                acc_idx=acc_idx,
+                total_accounts=len(accounts),
             )
             statuses[acc_idx] = status
         except Exception as e:

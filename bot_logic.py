@@ -1,9 +1,9 @@
 # bot_logic.py
 # Launches the browser, detects Lazada session, routes to scraper or sniper.
 
-from playwright.sync_api import sync_playwright, ProxySettings, Route, BrowserContext
+from playwright.sync_api import sync_playwright, ProxySettings, Route, BrowserContext, Page
 from playwright_stealth import Stealth
-from captcha_solver import resolve_any_captcha
+from captcha_solver import resolve_any_captcha, attach_global_captcha_hook
 from stores.scraper.site_lazada import run_lazada, scrape_item_data
 from stores.checkout.lazada_site_buy import buy_item
 from datetime import datetime
@@ -21,7 +21,7 @@ def _block_resources(route: Route) -> None:
         route.continue_()
 
 
-def _is_lazada_logged_in(context: BrowserContext, page) -> bool:
+def _is_lazada_logged_in(context: BrowserContext, page: Page) -> bool:
     # Check for authenticated session cookies (without domain restrictions)
     cookies = context.cookies()
     session_cookies = {"_lzd_stoken", "login_cookie", "lzd_uid"}
@@ -38,62 +38,71 @@ def _is_lazada_logged_in(context: BrowserContext, page) -> bool:
     return False
 
 
-def _handle_login(page, context: BrowserContext, email: str = "", password: str = "") -> None:
+def _handle_login(page: Page, context: BrowserContext, email: str = "", password: str = "") -> None:
     """
-    Directs the page to the login URL. Attempts auto-login if email and password are provided.
-    If it fails (due to wrong credentials, captcha/slider, etc.) or if credentials are empty,
-    notifies the operator and falls back to manual human login.
+    Navigate to the Lazada login page and auto-login using CapMonster to solve
+    any captcha / slider that appears. No manual fallback — all challenges are
+    routed through CapMonster.
     """
     print("[Traffic Cop] No session found — redirecting to login page.")
     login_url = "https://member.lazada.sg/user/login"
     try:
         page.goto(login_url, wait_until="domcontentloaded", timeout=30_000)
     except Exception as e:
-        print(f"[Traffic Cop] Could not navigate directly to login page ({e}). Trying homepage redirect.")
+        print(f"[Traffic Cop] Could not navigate to login page ({e}). Trying homepage redirect.")
         try:
             page.goto("https://www.lazada.sg", wait_until="domcontentloaded", timeout=30_000)
-            login_btn = page.wait_for_selector("#anonLogin, a:has-text('LOGIN')", timeout=10000)
-            login_btn.click()
+            login_btn = page.wait_for_selector("#anonLogin, a:has-text('LOGIN')", timeout=10_000)
+            if login_btn:
+                login_btn.click()
         except Exception as redirect_err:
-            print(f"[Traffic Cop] Failed to redirect to login: {redirect_err}")
+            print(f"[Traffic Cop] Redirect to login failed: {redirect_err}")
 
-    # Check if credentials are provided and not default template placeholders
     is_cred_valid = (
-        email and 
-        password and 
-        "your_email" not in email and 
-        "your_password" not in password
+        email
+        and password
+        and "your_email" not in email
+        and "your_password" not in password
     )
 
-    if is_cred_valid:
-        print(f"[Traffic Cop] Attempting auto-login using email: {email}")
+    if not is_cred_valid:
+        if not email:
+            print("[Traffic Cop] No email credentials provided in .env.")
+        else:
+            print("[Traffic Cop] Default placeholder credentials found. Cannot auto-login.")
+        return
+
+    print(f"[Traffic Cop] Attempting auto-login using email: {email}")
+
+    user_selectors = [
+        "input[name='fm-login-id']",
+        "input[placeholder*='Phone Number or Email']",
+        "input[placeholder*='phone or email']",
+        "input[placeholder*='Email']",
+        ".mod-login-input-loginName input",
+        "input[type='text']",
+    ]
+    pass_selectors = [
+        "input[name='fm-login-password']",
+        "input[type='password']",
+        "input[placeholder*='Password']",
+        ".mod-login-input-password input",
+    ]
+    submit_selectors = [
+        "button[type='submit']",
+        "button:has-text('LOGIN')",
+        "button:has-text('Login')",
+        ".mod-login-btn button",
+    ]
+
+    # Up to 3 attempts: solve captcha → fill credentials → submit
+    for attempt in range(1, 4):
         try:
-            # Let the page render a bit to avoid element errors
             time.sleep(1.5)
 
-            # Robust selectors for Lazada's login fields
-            user_selectors = [
-                "input[name='fm-login-id']",
-                "input[placeholder*='Phone Number or Email']",
-                "input[placeholder*='phone or email']",
-                "input[placeholder*='Email']",
-                ".mod-login-input-loginName input",
-                "input[type='text']"
-            ]
-            
-            pass_selectors = [
-                "input[name='fm-login-password']",
-                "input[type='password']",
-                "input[placeholder*='Password']",
-                ".mod-login-input-password input"
-            ]
-
-            submit_selectors = [
-                "button[type='submit']",
-                "button:has-text('LOGIN')",
-                "button:has-text('Login')",
-                ".mod-login-btn button"
-            ]
+            # Resolve any pre-form captcha
+            resolve_any_captcha(page)
+            time.sleep(0.5)
 
             user_el = None
             for sel in user_selectors:
@@ -125,95 +134,71 @@ def _handle_login(page, context: BrowserContext, email: str = "", password: str 
                 except Exception:
                     pass
 
-            if user_el and pass_el and submit_el:
-                # Clear, focus and simulate typing
-                user_el.click()
-                user_el.fill("")
-                user_el.type(email, delay=30)
-                
-                pass_el.click()
-                pass_el.fill("")
-                pass_el.type(password, delay=30)
-                
-                # Check for active slide or image captchas and solve them dynamically
-                solved_captcha = resolve_any_captcha(page)
-                if solved_captcha:
-                    print("[Traffic Cop] Captcha solver executed successfully. Bypassing blocker...")
-                    time.sleep(1.0)
-                
-                # Check for slider captcha wrapper before clicking submit
-                slider_selectors = [
-                    "#nc_1_n1z",
-                    ".nc_scale",
-                    ".next-slider",
-                    "[class*='slider']",
-                    "[class*='nc-container']"
-                ]
-                has_slider = False
-                for sel in slider_selectors:
-                    try:
-                        if page.locator(sel).count() > 0 and page.locator(sel).first.is_visible():
-                            has_slider = True
-                            break
-                    except Exception:
-                        pass
-                
-                if has_slider:
-                    print("[Traffic Cop] WARNING: Slider Captcha / Slide-to-verify detected on page. Auto-login cannot bypass sliders automatically.")
-                else:
-                    time.sleep(0.5)
-                    submit_el.click()
-                    print("[Traffic Cop] Credentials submitted. Waiting to verify session...")
-                    
-                    # Wait up to 6 seconds for login to succeed
-                    for _ in range(6):
-                        time.sleep(1)
-                        if _is_lazada_logged_in(context, page):
-                            print("[Traffic Cop] Auto-login succeeded! Active session confirmed.")
-                            return
-                
-                # Check for common error elements on failure
-                err_selectors = [
-                    ".next-feedback-message",
-                    ".next-feedback-content",
-                    ".mod-login-input-validation",
-                    "[class*='alert']",
-                    "[class*='error-msg']",
-                    "[class*='feedback']"
-                ]
-                err_msg = ""
-                for sel in err_selectors:
-                    try:
-                        el = page.locator(sel).first
-                        if el.count() > 0 and el.is_visible():
-                            err_msg = el.inner_text().strip()
-                            break
-                    except Exception:
-                        pass
-                
-                if err_msg:
-                    print(f"[Traffic Cop] Auto-login failed with error message: '{err_msg}'")
-                else:
-                    print("[Traffic Cop] Auto-login failed or verification slider was triggered.")
-            else:
-                print("[Traffic Cop] Auto-login failed: Could not locate login form input fields.")
-                
-        except Exception as e:
-            print(f"[Traffic Cop] Auto-login crashed: {e}")
-    else:
-        if not email:
-            print("[Traffic Cop] No email credentials provided in .env.")
-        else:
-            print("[Traffic Cop] Default placeholder credentials found. Skipping auto-fill.")
+            if not (user_el and pass_el and submit_el):
+                print(f"[Traffic Cop] Attempt {attempt}: login form fields not found. Retrying...")
+                page.reload(wait_until="domcontentloaded", timeout=30_000)
+                continue
 
-    # Fallback to manual human login
-    print("[Traffic Cop] >>> PLEASE SIGN IN MANUALLY in this browser window. <<<")
-    print("[Traffic Cop] Waiting for manual login...")
-    while True:
-        if _is_lazada_logged_in(context, page):
-            break
-        time.sleep(2)
-    print("[Traffic Cop] Login confirmed — proceeding.")
+            user_el.click()
+            user_el.fill("")
+            user_el.type(email, delay=30)
+
+            pass_el.click()
+            pass_el.fill("")
+            pass_el.type(password, delay=30)
+
+            # Solve any captcha that appeared after typing credentials
+            resolve_any_captcha(page)
+            time.sleep(0.5)
+
+            # Re-check for remaining slider / captcha blocking submit
+            blocking_captcha = False
+            for sel in ["#nc_1_n1z", ".nc_scale", "[class*='nc-container']",
+                        "[class*='next-slider']", "[class*='captcha-slider']"]:
+                try:
+                    if page.locator(sel).count() > 0 and page.locator(sel).first.is_visible():
+                        blocking_captcha = True
+                        break
+                except Exception:
+                    pass
+
+            if blocking_captcha:
+                print(f"[Traffic Cop] Attempt {attempt}: captcha still visible after solving — retrying...")
+                resolve_any_captcha(page)
+                time.sleep(1.0)
+
+            submit_el.click()
+            print(f"[Traffic Cop] Attempt {attempt}: credentials submitted. Waiting for session...")
+
+            for _ in range(8):
+                time.sleep(1)
+                if _is_lazada_logged_in(context, page):
+                    print("[Traffic Cop] Auto-login succeeded! Active session confirmed.")
+                    return
+
+            # Check for error messages
+            err_msg = ""
+            for sel in [".next-feedback-message", ".next-feedback-content",
+                        ".mod-login-input-validation", "[class*='error-msg']",
+                        "[class*='feedback']"]:
+                try:
+                    el = page.locator(sel).first
+                    if el.count() > 0 and el.is_visible():
+                        err_msg = el.inner_text().strip()
+                        break
+                except Exception:
+                    pass
+
+            if err_msg:
+                print(f"[Traffic Cop] Attempt {attempt} failed — server error: '{err_msg}'")
+            else:
+                print(f"[Traffic Cop] Attempt {attempt} failed — session not confirmed. Retrying...")
+                resolve_any_captcha(page)
+
+        except Exception as e:
+            print(f"[Traffic Cop] Auto-login attempt {attempt} crashed: {e}")
+
+    print("[Traffic Cop] All login attempts exhausted — could not establish a session.")
 
 
 def start_browser_and_route(
@@ -226,6 +211,8 @@ def start_browser_and_route(
     test_refresh_duration: int = 0,
     email: str = "",
     password: str = "",
+    acc_idx: int = 1,
+    total_accounts: int = 1,
 ) -> str:
     """
     Launch browser, detect session, and route to the right store module.
@@ -238,6 +225,8 @@ def start_browser_and_route(
     test_refresh_duration — seconds to keep refreshing even when in stock (for testing)
     email                — email to auto-fill login
     password             — password to auto-fill login
+    acc_idx              — account index for screen placement
+    total_accounts       — total parallel accounts for screen placement
     """
     proxy_url = os.getenv("PROXY_URL", None)
     proxy_config: ProxySettings | None = (
@@ -246,6 +235,7 @@ def start_browser_and_route(
 
     # Buy / Buy_Scrape = headful (user can see & intervene); scrape = headless to save resources.
     headless_mode = action not in ("buy", "buy_scrape")
+    result = ""
 
     print(f"\n[Traffic Cop] Launching browser — {action.upper()} on {store_name}...")
     if proxy_config:
@@ -255,14 +245,51 @@ def start_browser_and_route(
 
     with Stealth().use_sync(sync_playwright()) as p:
         # Always launch fresh browser without saved sessions
-        browser = p.chromium.launch(headless=headless_mode, slow_mo=0, channel="chrome")
-        context = (
-            browser.new_context(proxy=proxy_config)
-            if proxy_config
-            else browser.new_context()
+        launch_args = []
+        if not headless_mode and total_accounts > 1:
+            import math
+            # Standard screen dimension estimate
+            screen_width = 1920
+            screen_height = 1080
+            cols = math.ceil(math.sqrt(total_accounts))
+            rows = math.ceil(total_accounts / cols)
+            
+            # Substract small margin for OS panels/docks
+            margin_y = 60
+            
+            win_width = int(screen_width / cols)
+            win_height = int((screen_height - margin_y) / rows)
+            
+            idx = acc_idx - 1
+            row = idx // cols
+            col = idx % cols
+            
+            x = col * win_width
+            y = row * win_height
+            
+            launch_args.extend([
+                f"--window-position={x},{y}",
+                f"--window-size={win_width},{win_height}"
+            ])
+            print(f"[Traffic Cop] Window Layout: pos=({x},{y}), size={win_width}x{win_height}")
+
+        browser = p.chromium.launch(
+            headless=headless_mode, 
+            slow_mo=0, 
+            channel="chrome", 
+            args=launch_args
+        )
+        
+        context = browser.new_context(
+            proxy=proxy_config,
+            viewport=None if (not headless_mode and total_accounts > 1) else { "width": 1280, "height": 720 }
         )
 
         page = context.new_page()
+
+        # Attach global captcha hook on headful pages so every navigation is swept.
+        if not headless_mode:
+            attach_global_captcha_hook(page)
 
         # Block CSS/images only during standalone scrape — checkout needs a full render.
         if action == "scrape":
@@ -272,7 +299,6 @@ def start_browser_and_route(
             print("[Traffic Cop] Mode: Headful / Full-render")
 
         # --- Store routing ---
-        result = ""
         try:
             if store_name.lower() == "lazada":
                 if action == "scrape":
@@ -414,5 +440,4 @@ def start_browser_and_route(
                     browser.close()
             except Exception:
                 pass
-        # pyrefly: ignore [bad-return]
-        return result
+    return result or ""
