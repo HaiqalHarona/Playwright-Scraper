@@ -129,11 +129,11 @@ def _handle_login(page, context: BrowserContext, email: str = "", password: str 
                 # Clear, focus and simulate typing
                 user_el.click()
                 user_el.fill("")
-                user_el.type(email, delay=60)
+                user_el.type(email, delay=30)
                 
                 pass_el.click()
                 pass_el.fill("")
-                pass_el.type(password, delay=60)
+                pass_el.type(password, delay=30)
                 
                 # Check for active slide or image captchas and solve them dynamically
                 solved_captcha = resolve_any_captcha(page)
