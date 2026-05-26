@@ -7,8 +7,68 @@ from captcha_solver import resolve_any_captcha, attach_global_captcha_hook
 from stores.scraper.site_lazada import run_lazada, scrape_item_data
 from stores.checkout.lazada_site_buy import buy_item
 from datetime import datetime
+import ctypes
+import ctypes.wintypes
+import math
 import os
 import time
+
+
+# ---------------------------------------------------------------------------
+# Window grid snapping — uses Win32 API to reliably position Chrome windows.
+# ---------------------------------------------------------------------------
+
+def _get_screen_resolution() -> tuple[int, int]:
+    """Return (width, height) of the primary monitor working area (excludes taskbar)."""
+    try:
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        # SM_CXFULLSCREEN / SM_CYFULLSCREEN respect the taskbar
+        w = user32.GetSystemMetrics(16)  # SM_CXFULLSCREEN
+        h = user32.GetSystemMetrics(17)  # SM_CYFULLSCREEN
+        if w > 0 and h > 0:
+            return w, h
+    except Exception:
+        pass
+    return 1920, 1040  # safe fallback
+
+
+def _compute_grid(total: int) -> tuple[int, int]:
+    """Return (cols, rows) for a grid that fits `total` windows with minimal empty cells."""
+    cols = math.ceil(math.sqrt(total))
+    rows = math.ceil(total / cols)
+    return cols, rows
+
+
+def _snap_window_cdp(browser, win_x: int, win_y: int, win_w: int, win_h: int) -> bool:
+    """
+    Position the browser window using Chrome DevTools Protocol Browser.setWindowBounds.
+    Works on any Playwright-launched Chromium without needing the OS process ID.
+    """
+    try:
+        cdp = browser.new_browser_cdp_session()
+        targets = cdp.send("Target.getTargets").get("targetInfos", [])
+        page_target = next((t for t in targets if t.get("type") == "page"), None)
+        if not page_target:
+            cdp.detach()
+            return False
+        window_info = cdp.send("Browser.getWindowForTarget", {"targetId": page_target["targetId"]})
+        window_id = window_info["windowId"]
+        cdp.send("Browser.setWindowBounds", {
+            "windowId": window_id,
+            "bounds": {
+                "left": win_x,
+                "top": win_y,
+                "width": win_w,
+                "height": win_h,
+                "windowState": "normal",
+            },
+        })
+        cdp.detach()
+        return True
+    except Exception as e:
+        print(f"[Traffic Cop] CDP window snap failed: {e}")
+        return False
+
 
 
 # Block heavy assets during scrape to save bandwidth.
@@ -241,48 +301,46 @@ def start_browser_and_route(
     if proxy_config:
         print(f"[Traffic Cop] Proxy: {proxy_url}")
     print(f"[Traffic Cop] Headless: {headless_mode}")
-    print(f"[Traffic Cop] Mode: Fresh browser (no saved sessions)")
+    print(f"[Traffic Cop] Mode: Fresh browser (no saved sessions)")  # noqa: F541
 
     with Stealth().use_sync(sync_playwright()) as p:
         # Always launch fresh browser without saved sessions
         launch_args = []
-        if not headless_mode and total_accounts > 1:
-            import math
-            # Standard screen dimension estimate
-            screen_width = 1920
-            screen_height = 1080
-            cols = math.ceil(math.sqrt(total_accounts))
-            rows = math.ceil(total_accounts / cols)
-            
-            # Substract small margin for OS panels/docks
-            margin_y = 60
-            
-            win_width = int(screen_width / cols)
-            win_height = int((screen_height - margin_y) / rows)
-            
+        win_x, win_y, win_w, win_h = 0, 0, 1280, 720
+
+        if not headless_mode and total_accounts >= 1:
+            screen_w, screen_h = _get_screen_resolution()
+            cols, rows = _compute_grid(total_accounts)
+            win_w = screen_w // cols
+            win_h = screen_h // rows
+
             idx = acc_idx - 1
             row = idx // cols
             col = idx % cols
-            
-            x = col * win_width
-            y = row * win_height
-            
+            win_x = col * win_w
+            win_y = row * win_h
+
+            # Pass as hints to Chrome; actual enforcement happens via SetWindowPos below
             launch_args.extend([
-                f"--window-position={x},{y}",
-                f"--window-size={win_width},{win_height}"
+                f"--window-position={win_x},{win_y}",
+                f"--window-size={win_w},{win_h}",
             ])
-            print(f"[Traffic Cop] Window Layout: pos=({x},{y}), size={win_width}x{win_height}")
+            print(f"[Traffic Cop] Window Layout: pos=({win_x},{win_y}), size={win_w}x{win_h} (grid {cols}x{rows})")
 
         browser = p.chromium.launch(
-            headless=headless_mode, 
-            slow_mo=0, 
-            channel="chrome", 
+            headless=headless_mode,
+            slow_mo=0,
+            channel="chrome",
             args=launch_args
         )
-        
+
+        # Snap window into exact grid position via CDP (no PID or Win32 needed)
+        if not headless_mode:
+            _snap_window_cdp(browser, win_x, win_y, win_w, win_h)
+
         context = browser.new_context(
             proxy=proxy_config,
-            viewport=None if (not headless_mode and total_accounts > 1) else { "width": 1280, "height": 720 }
+            viewport={"width": win_w, "height": win_h} if not headless_mode else {"width": 1280, "height": 720}
         )
 
         page = context.new_page()
@@ -337,7 +395,7 @@ def start_browser_and_route(
                         page.reload(wait_until="domcontentloaded", timeout=30_000)
                         time.sleep(retry_interval)
 
-                    print(f"\n[Traffic Cop] In-stock products found:")
+                    print(f"\n[Traffic Cop] In-stock products found:")  # noqa: F541
                     for p in in_stock:
                         print(f"  - {p['name'][:60]} | {p['price']}")
 

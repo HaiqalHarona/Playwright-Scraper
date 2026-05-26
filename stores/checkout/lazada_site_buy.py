@@ -8,10 +8,10 @@ from captcha_solver import resolve_any_captcha
 
 # --- Timeouts (ms) and delays (s) ---
 _NAVIGATION_TIMEOUT = 60_000  # full page load
-_ELEMENT_TIMEOUT = 30_000     # single element wait (increased from 15s to 30s)
-_RETRY_DELAY = 0.4            # between refresh attempts
-_POST_CLICK_DELAY = 1.5       # breathing room after major clicks
-MAX_REFRESH_ATTEMPTS = 300    # safety cap on the stock-poll loop
+_ELEMENT_TIMEOUT = 30_000  # single element wait (increased from 15s to 30s)
+_RETRY_DELAY = 0.4  # between refresh attempts
+_POST_CLICK_DELAY = 1.5  # breathing room after major clicks
+MAX_REFRESH_ATTEMPTS = 300  # safety cap on the stock-poll loop
 
 
 # --- Selectors — update if Lazada redesigns their DOM ---
@@ -27,7 +27,9 @@ SEL_QTY_PLUS = (
     "button.pdp-btn-quantity-plus, [class*='quantity'] button[class*='plus'], "
     ".pdp-mod-product-info-quantity button:last-of-type"
 )
-SEL_QTY_MAX_LABEL = "[class*='quantity-max'], [class*='maxQty'], [class*='Quantity-max']"
+SEL_QTY_MAX_LABEL = (
+    "[class*='quantity-max'], [class*='maxQty'], [class*='Quantity-max']"
+)
 SEL_BUY_NOW = (
     "button[data-spm='d_buynow'], .btn-buynow, [class*='buynow'], "
     "button:has-text('Buy Now'), button:has-text('BUY NOW')"
@@ -73,6 +75,7 @@ SEL_OOS_INDICATORS = (
 
 
 # --- Helpers ---
+
 
 def _wait_until_near_release(release_time: datetime, lead_seconds: int) -> None:
     # Block until LEAD_SECONDS before drop time, printing a heartbeat every 10s.
@@ -224,7 +227,9 @@ def _set_quantity(page: Page, target_quantity: int) -> int:
             input_loc.press("Enter")
             time.sleep(0.25)
             qty_set = _read_quantity(page)
-            print(f"[Sniper] Quantity set to {qty_set} via direct input (target {actual_target}).")
+            print(
+                f"[Sniper] Quantity set to {qty_set} via direct input (target {actual_target})."
+            )
         else:
             plus_loc = page.locator(SEL_QTY_PLUS).first
             if plus_loc.count() == 0:
@@ -237,10 +242,14 @@ def _set_quantity(page: Page, target_quantity: int) -> int:
                 plus_loc.click()
                 time.sleep(0.08)
             qty_set = _read_quantity(page)
-            print(f"[Sniper] Quantity incremented to {qty_set} via '+' (target {actual_target}).")
+            print(
+                f"[Sniper] Quantity incremented to {qty_set} via '+' (target {actual_target})."
+            )
 
         if qty_set < actual_target:
-            print(f"[Sniper] Warning — requested {actual_target} but page shows {qty_set}.")
+            print(
+                f"[Sniper] Warning — requested {actual_target} but page shows {qty_set}."
+            )
     except Exception as exc:
         print(f"[Sniper] Could not set quantity ({exc}) — using qty=1.")
     return qty_set
@@ -253,8 +262,9 @@ def _dismiss_overlays(page: Page) -> None:
         "button:has-text('Close'), button:has-text('×'), button:has-text('✕')",
         "[class*='overlay'] button, [class*='modal'] button",
         ".next-dialog-close, .next-overlay-backdrop",
+        "[class*='baxia-dialog'] button:has-text('×'), [class*='baxia-dialog'] button:has-text('Close')",
     ]
-    
+
     for selector in overlay_selectors:
         try:
             overlay = page.locator(selector).first
@@ -268,17 +278,17 @@ def _dismiss_overlays(page: Page) -> None:
 
 def _click_place_order(page: Page, max_retries: int = 3) -> None:
     """Click Place Order button with comprehensive debug logging and retry logic."""
-    
+
     for attempt in range(max_retries):
         try:
             if attempt > 0:
                 print(f"[Sniper] Place Order click attempt {attempt + 1}/{max_retries}")
                 time.sleep(2)
                 page.wait_for_load_state("networkidle", timeout=5000)
-            
+
             print("[Sniper] === DEBUG: Place Order Button Detection ===")
             print(f"[Sniper] Current URL: {page.url}")
-            
+
             # Log all buttons on page for debugging
             try:
                 all_buttons = page.locator("button").all()
@@ -289,31 +299,56 @@ def _click_place_order(page: Page, max_retries: int = 3) -> None:
                         classes = btn.get_attribute("class") or ""
                         visible = btn.is_visible()
                         enabled = btn.is_enabled()
-                        print(f"[Sniper]   Button {i+1}: '{text}' | visible={visible} | enabled={enabled} | class={classes[:50]}")
+                        print(
+                            f"[Sniper]   Button {i + 1}: '{text}' | visible={visible} | enabled={enabled} | class={classes[:50]}"
+                        )
                     except Exception:
                         pass
             except Exception as e:
                 print(f"[Sniper] Could not enumerate buttons: {e}")
-            
+
             # Try multiple candidate strategies
             candidates = [
-                ("Exact Text 'Place Order Now'", page.locator("button:has-text('Place Order Now'), button:has-text('PLACE ORDER NOW'), button:has-text('place order now')")),
-                ("Role-based", page.get_by_role("button", name=re.compile(r"(place\s*order|proceed\s*to\s*pay|pay\s*now|pay|checkout|submit|confirm)", re.I))),
+                (
+                    "Exact Text 'PLACE ORDER NOW' (any element)",
+                    page.get_by_text("PLACE ORDER NOW"),
+                ),
+                (
+                    "Exact Text 'Place Order Now'",
+                    page.locator(
+                        "button:has-text('Place Order Now'), button:has-text('PLACE ORDER NOW'), button:has-text('place order now')"
+                    ),
+                ),
+                (
+                    "Role-based",
+                    page.get_by_role(
+                        "button",
+                        name=re.compile(
+                            r"(place\s*order|proceed\s*to\s*pay|pay\s*now|pay|checkout|submit|confirm)",
+                            re.I,
+                        ),
+                    ),
+                ),
                 ("CSS Selector", page.locator(SEL_PLACE_ORDER)),
-                ("Text Contains 'pay'", page.locator("button:has-text('pay'), button:has-text('Pay'), button:has-text('PAY')")),
+                (
+                    "Text Contains 'pay'",
+                    page.locator(
+                        "button:has-text('pay'), button:has-text('Pay'), button:has-text('PAY')"
+                    ),
+                ),
                 ("Submit Type", page.locator("button[type='submit']")),
             ]
-            
+
             last_error: Exception | None = None
-            
+
             for strategy_name, candidate in candidates:
                 print(f"[Sniper] Trying strategy: {strategy_name}")
                 count = candidate.count()
                 print(f"[Sniper]   Found {count} matches")
-                
+
                 if count == 0:
                     continue
-                    
+
                 # Try each match
                 for i in range(count):
                     try:
@@ -321,22 +356,26 @@ def _click_place_order(page: Page, max_retries: int = 3) -> None:
                         text = btn.inner_text()[:50] if btn.count() > 0 else "N/A"
                         visible = btn.is_visible() if btn.count() > 0 else False
                         enabled = btn.is_enabled() if btn.count() > 0 else False
-                        
-                        print(f"[Sniper]   Match {i+1}: '{text}' | visible={visible} | enabled={enabled}")
-                        
+
+                        print(
+                            f"[Sniper]   Match {i + 1}: '{text}' | visible={visible} | enabled={enabled}"
+                        )
+
                         if not visible:
                             print(f"[Sniper]   Attempting to scroll into view...")
                             if not _scroll_until_visible(page, candidate.nth(i)):
                                 print(f"[Sniper]   Still not visible after scrolling")
                                 continue
-                        
+
                         btn.scroll_into_view_if_needed()
                         time.sleep(0.5)
-                        
+
                         try:
                             print(f"[Sniper]   Attempting normal click...")
                             btn.click(timeout=_ELEMENT_TIMEOUT)
-                            print(f"[Sniper] ✓ Place Order clicked successfully using {strategy_name}")
+                            print(
+                                f"[Sniper] ✓ Place Order clicked successfully using {strategy_name}"
+                            )
                             return
                         except Exception as exc:
                             print(f"[Sniper]   Normal click failed: {exc}")
@@ -344,26 +383,32 @@ def _click_place_order(page: Page, max_retries: int = 3) -> None:
                             try:
                                 print(f"[Sniper]   Attempting force click...")
                                 btn.click(force=True, timeout=_ELEMENT_TIMEOUT)
-                                print(f"[Sniper] ✓ Place Order clicked (force) using {strategy_name}")
+                                print(
+                                    f"[Sniper] ✓ Place Order clicked (force) using {strategy_name}"
+                                )
                                 return
                             except Exception as force_exc:
                                 print(f"[Sniper]   Force click failed: {force_exc}")
                                 last_error = force_exc
-                                
+
                     except Exception as e:
-                        print(f"[Sniper]   Error processing match {i+1}: {e}")
+                        print(f"[Sniper]   Error processing match {i + 1}: {e}")
                         last_error = e
-            
+
             # If we get here, this attempt failed
-            print(f"[Sniper] === Attempt {attempt + 1} failed - all strategies unsuccessful ===")
+            print(
+                f"[Sniper] === Attempt {attempt + 1} failed - all strategies unsuccessful ==="
+            )
             if attempt < max_retries - 1:
                 print(f"[Sniper] Retrying in 2 seconds...")
             else:
                 # Final attempt failed
                 if last_error:
                     raise last_error
-                raise PlaywrightTimeout("Place Order button not found or not clickable after trying all strategies")
-                
+                raise PlaywrightTimeout(
+                    "Place Order button not found or not clickable after trying all strategies"
+                )
+
         except Exception as e:
             if attempt < max_retries - 1:
                 print(f"[Sniper] Attempt {attempt + 1} crashed: {e}. Retrying...")
@@ -375,22 +420,14 @@ def _click_place_order(page: Page, max_retries: int = 3) -> None:
 def _handle_checkout(page: Page) -> str:
     # Skip all checks and go straight to Place Order button
     print("[Sniper] On checkout page, proceeding directly to Place Order...")
-    
+
     # Check if page/context is still alive before proceeding
     try:
         if page.is_closed():
             return "ERROR: Page was closed before checkout could complete."
     except Exception as e:
         return f"ERROR: Cannot access page state: {e}"
-    
-    # Maximize viewport so the Place Order button is visible without scrolling
-    print("[Sniper] Maximizing viewport to reveal Place Order button...")
-    try:
-        page.set_viewport_size({"width": 1920, "height": 1080})
-        time.sleep(0.5)
-    except Exception as e:
-        print(f"[Sniper] Viewport resize failed (non-critical): {e}")
-    
+
     # Minimal wait - just ensure basic DOM is loaded
     print(f"[Sniper] Current URL: {page.url}")
     try:
@@ -432,27 +469,31 @@ def _handle_checkout(page: Page) -> str:
     # except PlaywrightTimeout:
     #     print("[Sniper] Warning — card selector not found (may already be selected).")
 
-    # # Dismiss any overlays before clicking Place Order
-    # print("[Sniper] Checking for overlays...")
-    # _dismiss_overlays(page)
+    # Dismiss any overlays before clicking Place Order
+    print("[Sniper] Checking for overlays...")
+    _dismiss_overlays(page)
 
     # Click Place Order (sticky footer — must scroll into view before click).
     try:
         print("[Sniper] Sweeping for captchas before placing order...")
         resolve_any_captcha(page)
-        
+
         print("[Sniper] Scrolling down to find Place Order button...")
         _click_place_order(page)
         time.sleep(_POST_CLICK_DELAY * 2)
-        
+
         print("[Sniper] Sweeping for post-click verification captchas...")
         resolve_any_captcha(page)
     except PlaywrightTimeout:
-        print("[Sniper] ERROR: Place Order button not found — keeping browser open for manual intervention.")
+        print(
+            "[Sniper] ERROR: Place Order button not found — keeping browser open for manual intervention."
+        )
         input("\n>>> Press ENTER to close the browser and continue... <<<\n")
         return "ERROR: Place Order button not found — order NOT placed."
     except Exception as exc:
-        print(f"[Sniper] ERROR: Place Order click failed ({exc}) — keeping browser open for manual intervention.")
+        print(
+            f"[Sniper] ERROR: Place Order click failed ({exc}) — keeping browser open for manual intervention."
+        )
         input("\n>>> Press ENTER to close the browser and continue... <<<\n")
         return f"ERROR: Place Order click failed ({exc}) — order NOT placed."
 
@@ -466,6 +507,7 @@ def _handle_checkout(page: Page) -> str:
 
 
 # --- Main entry point ---
+
 
 def buy_item(
     page: Page,
@@ -507,26 +549,36 @@ def buy_item(
         now = datetime.now()
         total_wait = (release_time - now).total_seconds()
         if total_wait > refresh_lead_seconds:
-            print(f"[Sniper] Release at {release_time} — idling {total_wait - refresh_lead_seconds:.0f}s then refreshing.")
+            print(
+                f"[Sniper] Release at {release_time} — idling {total_wait - refresh_lead_seconds:.0f}s then refreshing."
+            )
             _wait_until_near_release(release_time, refresh_lead_seconds)
         else:
-            print(f"[Sniper] Already within lead window ({total_wait:.1f}s) — refreshing now.")
+            print(
+                f"[Sniper] Already within lead window ({total_wait:.1f}s) — refreshing now."
+            )
 
     # part 4 — refresh until in stock (capped at MAX_REFRESH_ATTEMPTS)
     print("[Sniper] Polling stock (refreshing until OOS clears)...")
     attempt = 0
-    test_refresh_end_time = datetime.now().timestamp() + test_refresh_duration if test_refresh_duration > 0 else 0
+    test_refresh_end_time = (
+        datetime.now().timestamp() + test_refresh_duration
+        if test_refresh_duration > 0
+        else 0
+    )
 
     while True:
         attempt += 1
         if attempt > MAX_REFRESH_ATTEMPTS:
             return f"ERROR: Gave up after {MAX_REFRESH_ATTEMPTS} refresh attempts — item still OOS."
-        
+
         in_stock = _page_is_in_stock(page)
-        
+
         if in_stock:
             if datetime.now().timestamp() < test_refresh_end_time:
-                print(f"[Sniper] IN STOCK but test_refresh_duration active. #{attempt} — refreshing...")
+                print(
+                    f"[Sniper] IN STOCK but test_refresh_duration active. #{attempt} — refreshing..."
+                )
                 page.reload(wait_until="domcontentloaded", timeout=_NAVIGATION_TIMEOUT)
                 _scroll_for_lazy_load(page)
                 time.sleep(_RETRY_DELAY)
@@ -534,7 +586,7 @@ def buy_item(
             else:
                 print(f"[Sniper] IN STOCK on attempt #{attempt}!")
                 break
-                
+
         print(f"[Sniper] #{attempt} — still OOS, refreshing...")
         page.reload(wait_until="domcontentloaded", timeout=_NAVIGATION_TIMEOUT)
         _scroll_for_lazy_load(page)
@@ -552,29 +604,31 @@ def buy_item(
         # Scroll the button into view in case it's still off-screen.
         buy_btn.scroll_into_view_if_needed()
         time.sleep(0.3)
-        
+
         # Set up listener for popup/new page (Lazada might open checkout in new tab)
         context = page.context
         popup_page = None
-        
+
         def handle_popup(popup):
             nonlocal popup_page
             popup_page = popup
             print(f"[Sniper] Detected popup/new page: {popup.url}")
-        
+
         context.on("page", handle_popup)
-        
+
         # pyrefly: ignore [missing-attribute]
         buy_btn.click()
         print("[Sniper] Buy Now clicked, waiting for navigation...")
         time.sleep(_POST_CLICK_DELAY)
-        
+
         # Check if checkout opened in a new page/popup
         if popup_page:
             print("[Sniper] Checkout opened in new tab/popup, switching to it...")
-            popup_page.wait_for_load_state("domcontentloaded", timeout=_NAVIGATION_TIMEOUT)
+            popup_page.wait_for_load_state(
+                "domcontentloaded", timeout=_NAVIGATION_TIMEOUT
+            )
             page = popup_page  # Use the popup page for checkout
-        
+
         # Solve any verification sliders that block navigation after clicking Buy Now
         print("[Sniper] Sweeping for sliders blocking navigation after Buy Now...")
         resolve_any_captcha(page)
@@ -585,7 +639,7 @@ def buy_item(
                 return "ERROR: Page closed immediately after clicking Buy Now."
         except Exception as e:
             return f"ERROR: Cannot verify page state after Buy Now: {e}"
-            
+
     except PlaywrightTimeout:
         return "ERROR: Buy Now button not found — aborted."
     except Exception as e:
