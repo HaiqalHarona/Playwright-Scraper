@@ -417,7 +417,68 @@ def _click_place_order(page: Page, max_retries: int = 3) -> None:
                 raise
 
 
-def _handle_checkout(page: Page) -> str:
+def _check_and_recover_login(page: Page, context, email: str, password: str) -> bool:
+    """Detect if redirected to login page or if login popup appears, and perform recovery login."""
+    if not email or not password:
+        return False
+    try:
+        current_url = page.url
+        login_form_selectors = [
+            "input[name='fm-login-id']",
+            "input[placeholder*='Phone Number or Email']",
+            "input[placeholder*='phone or email']",
+            "input[type='password']",
+            ".mod-login-input-loginName input",
+            ".mod-login-input-password input",
+        ]
+        visible_login_form = False
+        for sel in login_form_selectors:
+            try:
+                loc = page.locator(sel).first
+                if loc.count() > 0 and loc.is_visible():
+                    visible_login_form = True
+                    break
+            except Exception:
+                pass
+
+        login_cta_visible = False
+        for sel in ["#anonLogin", "a[href*='user/login']", "button:has-text('LOGIN')"]:
+            try:
+                loc = page.locator(sel).first
+                if loc.count() > 0 and loc.is_visible():
+                    login_cta_visible = True
+                    break
+            except Exception:
+                pass
+
+        login_indicators = [
+            "login" in current_url,
+            "signup" in current_url,
+            "verification" in current_url,
+            "punish" in current_url,
+            "member.lazada" in current_url,
+            visible_login_form,
+            login_cta_visible,
+        ]
+        
+        if any(login_indicators):
+            print("[Sniper] Login/Verification prompt detected during sniper flow! Attempting session recovery...")
+            if context is None:
+                context = page.context
+            from bot_logic import _handle_login, _is_lazada_logged_in
+            _handle_login(page, context, email, password)
+            time.sleep(1.0)
+            if _is_lazada_logged_in(context, page):
+                print("[Sniper] Session recovery successful.")
+                return True
+            print("[Sniper] Session recovery attempted but session still not confirmed.")
+            return False
+    except Exception as e:
+        print(f"[Sniper] Session recovery login check failed: {e}")
+    return False
+
+
+def _handle_checkout(page: Page, context=None, email: str = "", password: str = "") -> str:
     # Skip all checks and go straight to Place Order button
     print("[Sniper] On checkout page, proceeding directly to Place Order...")
 
@@ -427,6 +488,9 @@ def _handle_checkout(page: Page) -> str:
             return "ERROR: Page was closed before checkout could complete."
     except Exception as e:
         return f"ERROR: Cannot access page state: {e}"
+
+    if _check_and_recover_login(page, context, email, password):
+        return "RETRY_LOGIN_FLOW"
 
     # Minimal wait - just ensure basic DOM is loaded
     print(f"[Sniper] Current URL: {page.url}")
@@ -444,31 +508,6 @@ def _handle_checkout(page: Page) -> str:
     except Exception as e:
         print(f"[Sniper] Scroll error (non-critical): {e}")
 
-    # # Default address is pre-selected by Lazada; just verify it's visible.
-    # print("[Sniper] Checking for address element...")
-    # try:
-    #     # Check if page is still alive before waiting for selector
-    #     if page.is_closed():
-    #         return "ERROR: Page closed while waiting for address element."
-    #
-    #     page.wait_for_selector(SEL_CHECKOUT_ADDR, timeout=_ELEMENT_TIMEOUT)
-    #     print("[Sniper] Default address confirmed.")
-    # except PlaywrightTimeout:
-    #     print("[Sniper] Warning — address selector not found, proceeding anyway.")
-    # except Exception as e:
-    #     print(f"[Sniper] Address check failed: {e}")
-    #     # Don't abort, continue to payment selection
-
-    # # Select Credit/Debit Card payment.
-    # try:
-    #     card = page.wait_for_selector(SEL_PAYMENT_CARD, timeout=_ELEMENT_TIMEOUT)
-    #     if card:
-    #         card.click()
-    #         print("[Sniper] Card payment selected.")
-    #         time.sleep(_POST_CLICK_DELAY)
-    # except PlaywrightTimeout:
-    #     print("[Sniper] Warning — card selector not found (may already be selected).")
-
     # Dismiss any overlays before clicking Place Order
     print("[Sniper] Checking for overlays...")
     _dismiss_overlays(page)
@@ -478,19 +517,33 @@ def _handle_checkout(page: Page) -> str:
         print("[Sniper] Sweeping for captchas before placing order...")
         resolve_any_captcha(page)
 
+        if _check_and_recover_login(page, context, email, password):
+            return "RETRY_LOGIN_FLOW"
+
         print("[Sniper] Scrolling down to find Place Order button...")
         _click_place_order(page)
         time.sleep(_POST_CLICK_DELAY * 2)
 
+        if _check_and_recover_login(page, context, email, password):
+            return "RETRY_LOGIN_FLOW"
+
         print("[Sniper] Sweeping for post-click verification captchas...")
         resolve_any_captcha(page)
+
+        if _check_and_recover_login(page, context, email, password):
+            return "RETRY_LOGIN_FLOW"
+
     except PlaywrightTimeout:
+        if _check_and_recover_login(page, context, email, password):
+            return "RETRY_LOGIN_FLOW"
         print(
             "[Sniper] ERROR: Place Order button not found — keeping browser open for manual intervention."
         )
         input("\n>>> Press ENTER to close the browser and continue... <<<\n")
         return "ERROR: Place Order button not found — order NOT placed."
     except Exception as exc:
+        if _check_and_recover_login(page, context, email, password):
+            return "RETRY_LOGIN_FLOW"
         print(
             f"[Sniper] ERROR: Place Order click failed ({exc}) — keeping browser open for manual intervention."
         )
@@ -503,6 +556,8 @@ def _handle_checkout(page: Page) -> str:
         print("[Sniper] Order confirmation page reached.")
         return "SUCCESS: Order placed."
     except PlaywrightTimeout:
+        if _check_and_recover_login(page, context, email, password):
+            return "RETRY_LOGIN_FLOW"
         return f"LIKELY_SUCCESS: Final URL = {page.url}"
 
 
@@ -516,6 +571,9 @@ def buy_item(
     refresh_lead_seconds: int = 5,
     target_quantity: int = 1,
     test_refresh_duration: int = 0,
+    context=None,
+    email: str = "",
+    password: str = "",
 ) -> str:
     """
     Lazada sniper entry point.
@@ -542,6 +600,9 @@ def buy_item(
     # part 2 — open product page
     print("[Sniper] Opening product page...")
     page.goto(target_url, wait_until="domcontentloaded", timeout=_NAVIGATION_TIMEOUT)
+    if _check_and_recover_login(page, context, email, password):
+        print("[Sniper] Session recovered after opening product page. Re-loading product page...")
+        page.goto(target_url, wait_until="domcontentloaded", timeout=_NAVIGATION_TIMEOUT)
     _scroll_for_lazy_load(page)
 
     # part 3 — pre-release countdown (skip if no release_time set)
@@ -572,6 +633,13 @@ def buy_item(
         if attempt > MAX_REFRESH_ATTEMPTS:
             return f"ERROR: Gave up after {MAX_REFRESH_ATTEMPTS} refresh attempts — item still OOS."
 
+        # Check if login has popped up during the stock-refresh loop
+        if _check_and_recover_login(page, context, email, password):
+            print("[Sniper] Session lost during refresh! Session recovered. Re-loading product page...")
+            page.goto(target_url, wait_until="domcontentloaded", timeout=_NAVIGATION_TIMEOUT)
+            _scroll_for_lazy_load(page)
+            continue
+
         in_stock = _page_is_in_stock(page)
 
         if in_stock:
@@ -592,64 +660,138 @@ def buy_item(
         _scroll_for_lazy_load(page)
         time.sleep(_RETRY_DELAY)
 
-    # part 5 — set quantity
-    qty = _set_quantity(page, target_quantity)
-    print(f"[Sniper] Qty: {qty}")
+    max_buy_attempts = 5
+    for buy_attempt in range(1, max_buy_attempts + 1):
+        print(f"[Sniper] Buying attempt {buy_attempt}/{max_buy_attempts}...")
+        
+        # Check login before starting this buy attempt
+        if _check_and_recover_login(page, context, email, password):
+            print("[Sniper] Session recovered before starting buy attempt. Re-loading product page...")
+            page.goto(target_url, wait_until="domcontentloaded", timeout=_NAVIGATION_TIMEOUT)
+            _scroll_for_lazy_load(page)
 
-    # part 6 — click Buy Now
-    try:
-        print("[Sniper] Clicking Buy Now...")
-        buy_btn = page.wait_for_selector(SEL_BUY_NOW, timeout=_ELEMENT_TIMEOUT)
-        # pyrefly: ignore [missing-attribute]
-        # Scroll the button into view in case it's still off-screen.
-        buy_btn.scroll_into_view_if_needed()
-        time.sleep(0.3)
+        # part 5 — set quantity
+        qty = _set_quantity(page, target_quantity)
+        print(f"[Sniper] Qty: {qty}")
 
-        # Set up listener for popup/new page (Lazada might open checkout in new tab)
-        context = page.context
-        popup_page = None
-
-        def handle_popup(popup):
-            nonlocal popup_page
-            popup_page = popup
-            print(f"[Sniper] Detected popup/new page: {popup.url}")
-
-        context.on("page", handle_popup)
-
-        # pyrefly: ignore [missing-attribute]
-        buy_btn.click()
-        print("[Sniper] Buy Now clicked, waiting for navigation...")
-        time.sleep(_POST_CLICK_DELAY)
-
-        # Check if checkout opened in a new page/popup
-        if popup_page:
-            print("[Sniper] Checkout opened in new tab/popup, switching to it...")
-            popup_page.wait_for_load_state(
-                "domcontentloaded", timeout=_NAVIGATION_TIMEOUT
-            )
-            page = popup_page  # Use the popup page for checkout
-
-        # Solve any verification sliders that block navigation after clicking Buy Now
-        print("[Sniper] Sweeping for sliders blocking navigation after Buy Now...")
-        resolve_any_captcha(page)
-
-        # Verify page is still alive after Buy Now click
+        # part 6 — click Buy Now
         try:
-            if page.is_closed():
-                return "ERROR: Page closed immediately after clicking Buy Now."
+            print("[Sniper] Clicking Buy Now...")
+            buy_btn = page.wait_for_selector(SEL_BUY_NOW, timeout=_ELEMENT_TIMEOUT)
+            # pyrefly: ignore [missing-attribute]
+            # Scroll the button into view in case it's still off-screen.
+            buy_btn.scroll_into_view_if_needed()
+            time.sleep(0.3)
+
+            # Set up listener for popup/new page (Lazada might open checkout in new tab)
+            context_obj = page.context
+            popup_page = None
+
+            def handle_popup(popup):
+                nonlocal popup_page
+                popup_page = popup
+                print(f"[Sniper] Detected popup/new page: {popup.url}")
+
+            context_obj.on("page", handle_popup)
+
+            try:
+                # pyrefly: ignore [missing-attribute]
+                buy_btn.click()
+                print("[Sniper] Buy Now clicked, waiting for navigation...")
+                time.sleep(_POST_CLICK_DELAY)
+
+                # Wait up to 3 seconds if popup page is expected but not yet registered
+                if not popup_page:
+                    for _ in range(15):
+                        if popup_page:
+                            break
+                        time.sleep(0.2)
+
+                # Check if redirected to login page after clicking Buy Now
+                if _check_and_recover_login(page, context, email, password):
+                    print("[Sniper] Session recovered after Buy Now. Retrying flow...")
+                    if popup_page:
+                        try:
+                            popup_page.close()
+                        except Exception:
+                            pass
+                    page.goto(target_url, wait_until="domcontentloaded", timeout=_NAVIGATION_TIMEOUT)
+                    _scroll_for_lazy_load(page)
+                    continue  # Retry this buy attempt
+
+                # Check if checkout opened in a new page/popup
+                active_page = page
+                if popup_page:
+                    print("[Sniper] Checkout opened in new tab/popup, switching to it...")
+                    popup_page.wait_for_load_state(
+                        "domcontentloaded", timeout=_NAVIGATION_TIMEOUT
+                    )
+                    active_page = popup_page  # Use the popup page for checkout
+
+                # Solve any verification sliders that block navigation after clicking Buy Now
+                print("[Sniper] Sweeping for sliders blocking navigation after Buy Now...")
+                resolve_any_captcha(active_page)
+
+                # Check if login popped up during captcha
+                if _check_and_recover_login(active_page, context, email, password):
+                    print("[Sniper] Session recovered during post-Buy Now captcha. Retrying flow...")
+                    if active_page != page:
+                        try:
+                            active_page.close()
+                        except Exception:
+                            pass
+                    page.goto(target_url, wait_until="domcontentloaded", timeout=_NAVIGATION_TIMEOUT)
+                    _scroll_for_lazy_load(page)
+                    continue  # Retry this buy attempt
+
+                # Verify page is still alive after Buy Now click
+                try:
+                    if active_page.is_closed():
+                        print("[Sniper] Page closed immediately after clicking Buy Now. Retrying...")
+                        continue
+                except Exception as e:
+                    print(f"[Sniper] Cannot verify page state after Buy Now: {e}. Retrying...")
+                    continue
+
+                # part 7 — complete checkout
+                print("[Sniper] Proceeding to checkout...")
+                checkout_res = _handle_checkout(active_page, context=context, email=email, password=password)
+                print(f"[Sniper] Checkout Result: {checkout_res}")
+                
+                if checkout_res == "RETRY_LOGIN_FLOW":
+                    print("[Sniper] Checkout requested retry due to session recovery. Navigating back to product page...")
+                    if active_page != page:
+                        try:
+                            active_page.close()
+                        except Exception:
+                            pass
+                    page.goto(target_url, wait_until="domcontentloaded", timeout=_NAVIGATION_TIMEOUT)
+                    _scroll_for_lazy_load(page)
+                    continue
+                    
+                return checkout_res
+            finally:
+                try:
+                    context_obj.remove_listener("page", handle_popup)
+                except Exception:
+                    pass
+
+        except PlaywrightTimeout:
+            print("[Sniper] Buy Now button not found or timed out.")
+            if buy_attempt < max_buy_attempts:
+                print("[Sniper] Retrying buy flow...")
+                page.goto(target_url, wait_until="domcontentloaded", timeout=_NAVIGATION_TIMEOUT)
+                _scroll_for_lazy_load(page)
+                continue
+            return "ERROR: Buy Now button not found — aborted."
         except Exception as e:
-            return f"ERROR: Cannot verify page state after Buy Now: {e}"
+            print(f"[Sniper] Failed to click Buy Now button: {e}")
+            if buy_attempt < max_buy_attempts:
+                print("[Sniper] Retrying buy flow...")
+                page.goto(target_url, wait_until="domcontentloaded", timeout=_NAVIGATION_TIMEOUT)
+                _scroll_for_lazy_load(page)
+                continue
+            return f"ERROR: Failed to click Buy Now button: {e}"
 
-    except PlaywrightTimeout:
-        return "ERROR: Buy Now button not found — aborted."
-    except Exception as e:
-        return f"ERROR: Failed to click Buy Now button: {e}"
+    return "ERROR: All buy attempts exhausted."
 
-    # part 7 — complete checkout
-    print("[Sniper] Proceeding to checkout...")
-    try:
-        result = _handle_checkout(page)
-        print(f"[Sniper] Result: {result}")
-        return result
-    except Exception as e:
-        return f"ERROR: Checkout handler crashed: {e}"

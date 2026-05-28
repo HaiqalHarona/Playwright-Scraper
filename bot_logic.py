@@ -161,8 +161,20 @@ def _handle_login(page: Page, context: BrowserContext, email: str = "", password
             time.sleep(1.5)
 
             # Resolve any pre-form captcha
-            resolve_any_captcha(page)
-            time.sleep(0.5)
+            did_resolve = resolve_any_captcha(page)
+            if did_resolve:
+                print("[Traffic Cop] Captcha resolved successfully. Waiting for form fields to settle...")
+                for _ in range(10):
+                    try:
+                        overlay = page.locator("[class*='baxia-dialog'], .baxia-dialog").first
+                        if overlay.count() == 0 or not overlay.is_visible():
+                            break
+                    except Exception:
+                        break
+                    time.sleep(0.5)
+                time.sleep(1.5)
+            else:
+                time.sleep(0.5)
 
             user_el = None
             for sel in user_selectors:
@@ -208,8 +220,20 @@ def _handle_login(page: Page, context: BrowserContext, email: str = "", password
             pass_el.type(password, delay=30)
 
             # Solve any captcha that appeared after typing credentials
-            resolve_any_captcha(page)
-            time.sleep(0.5)
+            did_resolve = resolve_any_captcha(page)
+            if did_resolve:
+                print("[Traffic Cop] Captcha resolved successfully. Waiting for form fields to settle...")
+                for _ in range(10):
+                    try:
+                        overlay = page.locator("[class*='baxia-dialog'], .baxia-dialog").first
+                        if overlay.count() == 0 or not overlay.is_visible():
+                            break
+                    except Exception:
+                        break
+                    time.sleep(0.5)
+                time.sleep(1.5)
+            else:
+                time.sleep(0.5)
 
             # Re-check for remaining slider / captcha blocking submit
             blocking_captcha = False
@@ -431,6 +455,9 @@ def start_browser_and_route(
                                 refresh_lead_seconds=0,
                                 target_quantity=target_quantity,
                                 test_refresh_duration=0,
+                                context=context,
+                                email=email,
+                                password=password,
                             )
                             buy_results.append(buy_result)
                             print(f"[Traffic Cop] <<< Result: {buy_result}")
@@ -465,6 +492,9 @@ def start_browser_and_route(
                             refresh_lead_seconds=refresh_lead_seconds,
                             target_quantity=target_quantity,
                             test_refresh_duration=test_refresh_duration,
+                            context=context,
+                            email=email,
+                            password=password,
                         )
                     except Exception as e:
                         result = f"ERROR: buy_item crashed: {e}"
