@@ -767,109 +767,6 @@ def solve_slide_to_verify(page: Page, slider_selector: str = "#nc_1_n1z") -> boo
                     pass
         except Exception as ocr_err:
             print(f"[Captcha Solver] Container OCR fallback failed: {ocr_err}")
-
-        # ── Last resort: blind full-track drag ──────────────────────────────────
-        # Handles pure "Please slide to verify" bars that have no image to analyze.
-        # These only require dragging the knob all the way to the right end.
-        print("[Captcha Solver] Attempting blind full-track drag as last resort...")
-        try:
-            knob_candidates_blind = [
-                "#nc_1_n1z",
-                "[class*='nc_scale'] span",
-                "[class*='slider'] span",
-                "[class*='slider-knob']",
-                "[class*='btn_slide']",
-                "[class*='drag-btn']",
-                "[class*='slide-btn']",
-                ".slider-button",
-            ]
-            track_candidates_blind = [
-                ".nc_scale",
-                "[class*='nc_scale']",
-                "[class*='slider-track']",
-                "[class*='verify-bar']",
-                "[class*='verify-slider']",
-                "[class*='slide-track']",
-            ]
-
-            knob_el = None
-            for sel in knob_candidates_blind:
-                try:
-                    el = page.locator(sel).first
-                    if el.count() > 0 and el.is_visible():
-                        box = el.bounding_box()
-                        if box and box["width"] < box["height"] * 4:
-                            knob_el = el
-                            break
-                except Exception:
-                    pass
-
-            # If we still can't find the knob, try to locate via container child
-            if not knob_el:
-                try:
-                    knob_el = container.locator("span, button").first
-                    if not (knob_el.count() > 0 and knob_el.is_visible()):
-                        knob_el = None
-                except Exception:
-                    pass
-
-            if not knob_el:
-                print("[Captcha Solver] Blind drag: cannot find knob element.")
-                return False
-
-            knob_box = knob_el.bounding_box()
-            if not knob_box:
-                return False
-
-            # Determine track width for the full drag distance
-            track_width = None
-            for sel in track_candidates_blind:
-                try:
-                    track = page.locator(sel).first
-                    if track.count() > 0 and track.is_visible():
-                        tb = track.bounding_box()
-                        if tb and tb["width"] > 80:
-                            track_width = tb["width"]
-                            break
-                except Exception:
-                    pass
-
-            if not track_width:
-                try:
-                    cb = container.bounding_box()
-                    track_width = cb["width"] if cb else 300
-                except Exception:
-                    track_width = 300
-
-            x_start = knob_box["x"] + knob_box["width"] / 2
-            y_mid = knob_box["y"] + knob_box["height"] / 2
-            drag_distance = int(track_width - knob_box["width"] - 4)
-
-            print(f"[Captcha Solver] Blind drag: {drag_distance}px across track ({int(track_width)}px wide)")
-            page.mouse.move(x_start, y_mid)
-            page.mouse.down()
-            # Slow, human-like drag in steps
-            steps = max(20, drag_distance // 5)
-            page.mouse.move(x_start + drag_distance, y_mid, steps=steps)
-            time.sleep(0.2)
-            page.mouse.up()
-            time.sleep(1.5)
-
-            # Check if the slider/overlay disappeared
-            try:
-                still_visible = container.is_visible()
-                if not still_visible:
-                    print("[Captcha Solver] ✓ Blind full-track drag succeeded!")
-                    return True
-                print("[Captcha Solver] Blind drag attempted but overlay still visible.")
-            except Exception:
-                # Element gone from DOM = success
-                print("[Captcha Solver] ✓ Blind drag element gone — likely solved.")
-                return True
-
-        except Exception as blind_err:
-            print(f"[Captcha Solver] Blind drag failed: {blind_err}")
-
         return False
 
     except Exception as e:
@@ -1245,10 +1142,6 @@ _CAPTCHA_TRIGGER_SELECTORS = [
     "img[src*='captcha']",
     "img[src*='getCaptcha']",
     "img[src*='code']",
-    # Lazada "Please slide to verify" modal
-    "[class*='verify-dialog']",
-    "[class*='baxia-dialog']",
-    "div:has-text('Please slide to verify')",
 ]
 
 _JIGSAW_BG_SELECTORS = [

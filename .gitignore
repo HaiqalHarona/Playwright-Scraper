@@ -8,3 +8,5 @@ __pycache__/
 .rooignore
 data/scrapes/*
 task.json
+.vscode
+bot_debug.log

@@ -7,25 +7,48 @@ import threading
 from datetime import datetime, timedelta
 from bot_logic import start_browser_and_route
 
-# --- Override global print to prefix logs with thread names ---
+# --- Override global print to prefix logs with thread names and save to file ---
 _original_print = builtins.print
-
+_log_file = open("bot_debug.log", "a", encoding="utf-8")
 
 def custom_print(*args, **kwargs):
     t_name = threading.current_thread().name
-    if t_name.startswith("Account-"):
-        sep = kwargs.get("sep", " ")
-        end = kwargs.get("end", "\n")
-        msg = sep.join(str(arg) for arg in args)
-        prefix = f"[{t_name}] "
-        _original_print(
-            f"{prefix}{msg}",
-            **{k: v for k, v in kwargs.items() if k not in ["sep", "end"]},
-            end=end,
-        )
-    else:
-        _original_print(*args, **kwargs)
+    sep = kwargs.get("sep", " ")
+    end = kwargs.get("end", "\n")
+    msg = sep.join(str(arg) for arg in args)
+    
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    prefix = f"[{t_name}] " if t_name.startswith("Account-") else ""
+    log_line = f"[{timestamp}] {prefix}{msg}"
+    
+    try:
+        _log_file.write(log_line + end)
+        _log_file.flush()
+    except Exception:
+        pass
 
+    important_keywords = [
+        "HUMAN NEEDS TO SOLVE",
+        "[URGENT]",
+        "UNIVERSAL SHOPPING",
+        "Supported Stores",
+        "Current Action",
+        "Release Time",
+        "Refresh Lead",
+        "Active Accounts",
+        "FINAL STATUS",
+        "EXECUTION SUMMARY",
+        "Account ",
+        "Starting parallel",
+        "Target URL",
+        "TEST MODE",
+        "Warning",
+        "Exception",
+        "CRASHED"
+    ]
+    
+    if any(kw in msg for kw in important_keywords) or "===" in msg or ">>>" in msg:
+        _original_print(f"{prefix}{msg}", **{k: v for k, v in kwargs.items() if k not in ["sep", "end"]}, end=end)
 
 builtins.print = custom_print
 
