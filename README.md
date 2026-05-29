@@ -26,6 +26,7 @@ A powerful automated shopping bot built with Playwright that can monitor product
 - [Running the Bot](#running-the-bot)
 - [Understanding the Logs](#understanding-the-logs)
 - [Troubleshooting](#troubleshooting)
+- [Developer Reference](#developer-reference)
 
 ## Features
 
@@ -33,7 +34,8 @@ A powerful automated shopping bot built with Playwright that can monitor product
 - **Scrape-to-buy pipeline** — scan a category page, find in-stock products, and buy them automatically
 - **Multi-account parallel execution**
 - **Scheduled release time support**
-- **Auto-login with fallback to manual login**
+- **Auto-login with dynamic session recovery fallback**
+- **Advanced Captcha Handling** (reCAPTCHA, Slider, and Grid-based Image selections)
 - **Stealth mode to avoid detection**
 - **Detailed logging and status reporting**
 
@@ -464,6 +466,13 @@ At the end of execution, you'll see:
 - Add delays between actions (already implemented)
 - Use proxy if available (configure `PROXY_URL`)
 - Avoid running too many parallel accounts
+
+## Developer Reference
+
+This project utilizes `playwright` with a robust traffic cop architecture built in `bot_logic.py`.
+- **Session Routing**: The `start_browser_and_route` function initializes Playwright's Stealth plugin, dynamically configures CDP window snapping using `_snap_window_cdp()`, and routes to specific store modules (e.g. `action == "buy_scrape"` vs `"scrape"`).
+- **Session Recovery**: `bot_logic.py` exposes `_check_and_recover_login`, a persistent fallback checker used extensively during the checkout loop. If Playwright is unexpectedly redirected to a login challenge (or if a popup appears mid-captcha), this function halts the main sniper loop, invokes `_handle_login`, restores the valid session cookie, and allows the bot to retry the purchase seamlessly.
+- **Headless Mode Optimization**: When `action == "scrape"`, the `bot_logic.py` utilizes a custom request interceptor (`_block_resources`) on the Playwright `Route` object to drop heavy assets like CSS, images, and fonts to save bandwidth.
 
 ## Support
 

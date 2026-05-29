@@ -266,7 +266,7 @@ pass_el.type(password, delay=60)
 
 **Step 3 — CAPTCHA guard**
 Checks `#nc_1_n1z`, `.nc_scale`, `.next-slider`, `[class*='slider']`, `[class*='nc-container']`.
-If found → skip submit, warn operator.
+If found → skip submit, invoke `resolve_any_captcha(page)` automatically.
 
 **Step 4 — Session verify loop** (up to 6s)
 ```python
@@ -407,6 +407,7 @@ main()
        ├─ [retry loop if SCRAPER_CONTINUOUS_MODE=true]
        │     └─ scrape_item_data(page, SCRAPER_TARGET_URL)
        │           ├─ page.goto(url, wait_until="domcontentloaded")
+       │           │     └─ resolve_any_captcha()
        │           ├─ [pagination loop]
        │           │     ├─ page.evaluate("window.scrollBy(...)")
        │           │     ├─ page.query_selector_all(selector)
@@ -437,8 +438,9 @@ main()
                    │     └─ _page_is_in_stock()
                    ├─ _set_quantity()                 Part 5
                    ├─ buy_btn.click()                 Part 6
+                   │     └─ _check_and_recover_login()
                    └─ _handle_checkout()              Part 7
-                         ├─ page.set_viewport_size()
+                         ├─ _check_and_recover_login()
                          ├─ _click_place_order()
                          └─ page.wait_for_url("**/order/**")
 ```

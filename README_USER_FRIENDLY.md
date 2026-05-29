@@ -529,6 +529,12 @@ To stop the bot at any time:
 - Complete the order manually
 - Press Enter in the terminal when done
 
+### "Session Recovery / Login popup appears during checkout"
+
+**Problem:** Lazada occasionally forces a security check or login verification when buying
+**Solution:** 
+- The bot handles this automatically! It pauses the purchase, resolves the login/captcha, and then retries the purchase. No action is needed unless it completely fails.
+
 ### Browser closes immediately
 
 **Problem:** Something went wrong during startup
@@ -563,6 +569,8 @@ You don't need to edit these, but here's what they are:
 - **stores/** - Contains the code for different shopping sites
   - **stores/checkout/** - Code for buying products
   - **stores/scraper/** - Code for monitoring products
+
+> **Under the Hood (Developer Note):** Playwright uses "BrowserContexts" to remember you are logged in. If a session is lost mid-purchase, `bot_logic.py` intercepts this, uses `_check_and_recover_login` to inject new valid cookies into the context, and resumes the checkout loop.
 
 ---
 

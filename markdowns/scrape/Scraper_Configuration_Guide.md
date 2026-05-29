@@ -13,7 +13,7 @@ The scraper now supports advanced configuration options that allow you to:
 
 ## Configuration Options
 
-All scraper configurations are set in the `.env` file. These settings only apply when `ACTION=scrape`.
+All scraper configurations are set in the `.env` file. These settings apply when `ACTION=scrape` or `ACTION=buy_scrape`.
 
 ### Basic Configuration
 
@@ -138,6 +138,8 @@ When `SCRAPER_CONTINUOUS_MODE=true`:
 3. Displays cycle number and in-stock count
 4. Highlights target products that are in stock
 5. Continues until manually stopped (Ctrl+C)
+
+> **Developer Syntax Note:** These settings directly interact with `bot_logic.py`'s `start_browser_and_route()` function. For `action == 'buy_scrape'`, the continuous mode wraps around Phase 1 (Scraping), repeating until an in-stock item is found, upon which it proceeds to Phase 2 (Login) and Phase 3 (Purchasing).
 
 ### Delay Strategy
 - **Fixed Delay**: Set by `SCRAPER_DELAY`

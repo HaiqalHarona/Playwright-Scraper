@@ -292,8 +292,15 @@ for _ in range(actual_target - current):
 
 ---
 
-### Part 6 — Click Buy Now
+### Part 6 — Click Buy Now & Session Recovery
 
+Before and during this step, a robust `_check_and_recover_login` runs to recover sessions if Lazada prompts a verification:
+```python
+if _check_and_recover_login(page, context, email, password):
+    page.goto(target_url, wait_until="domcontentloaded")
+```
+
+The click itself uses a listener for potential popup tabs:
 ```python
 _ELEMENT_TIMEOUT = 30_000   # ms
 
@@ -316,19 +323,23 @@ if popup_page:
 ### Part 7 — Complete checkout via `_handle_checkout(page)`
 
 ```python
-def _handle_checkout(page: Page) -> str
+def _handle_checkout(page: Page, context=None, email: str = "", password: str = "") -> str
 ```
 
 Steps:
 ```python
-# 1. Expand viewport to reveal sticky Place Order footer
-page.set_viewport_size({"width": 1920, "height": 1080})
+# 1. Immediate Session Check
+if _check_and_recover_login(page, context, email, password):
+    return "RETRY_LOGIN_FLOW"
 
-# 2. Wait for DOM
+# 2. Wait for DOM & Scroll
 page.wait_for_load_state("domcontentloaded", timeout=5000)
-
-# 3. Scroll into footer
 page.evaluate("window.scrollBy(0, 500)")
+
+# 3. Pre-click Captcha Sweep & Recovery
+resolve_any_captcha(page)
+if _check_and_recover_login(page, context, email, password):
+    return "RETRY_LOGIN_FLOW"
 
 # 4. Click Place Order
 _click_place_order(page)
@@ -419,8 +430,9 @@ main()
              │     ├─ input_loc.fill()
              │     └─ plus_loc.click() [fallback]
              ├─ buy_btn.click()                  Part 6
+             │     └─ _check_and_recover_login()
              └─ _handle_checkout()               Part 7
-                   ├─ page.set_viewport_size()
+                   ├─ _check_and_recover_login()
                    ├─ _click_place_order()
                    │     └─ btn.click() / btn.click(force=True)
                    └─ page.wait_for_url("**/order/**")

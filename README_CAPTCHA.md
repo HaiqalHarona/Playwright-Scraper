@@ -20,8 +20,14 @@ A high-performance, robust CAPTCHA resolution system designed specifically to by
 ### 3. Slide-to-Verify (Alibaba/Lazada NoCaptcha)
 * **Single Container Captures**: Screenshots full slider wrappers when separate background/piece components are missing, using CapMonster OCR to estimate pixel offsets.
 * **Fallback Mechanisms**: Automatically falls back to traditional coordinate estimations and sliding.
+* **Blind Full-Track Drag** *(new)*: When no background or piece image exists — as with Lazada's "Please slide to verify" modal — the solver skips CapMonster entirely and performs a full-width mouse drag directly on the track. It measures the knob and track bounding boxes via Playwright, then executes a slow human-like drag to the far-right end. The overlay disappearing from the DOM is used as success confirmation.
+* **Enhanced Detection**: The trigger selector list now includes `[class*='verify-dialog']`, `[class*='baxia-dialog']`, and `div:has-text('Please slide to verify')` to catch the specific Lazada "unusual traffic" popup.
 
-### 4. Alphanumeric OCR Captcha
+### 4. Image Grid Captcha ("Select all squares with...")
+* **Heuristic Object Detection**: Dynamically locates the image grid challenge by matching selector keywords and visual sizes. 
+* **Coordinate Mapping**: Takes CapMonster's `ComplexImageTask` array indices and dynamically calculates bounding box coordinates to accurately click individual grid tiles or canvas regions without being hindered by iframe drifting.
+
+### 5. Alphanumeric OCR Captcha
 * **Multi-Selector Image Detection**: Recognizes dynamic captcha images and input fields using heuristic DOM scanning.
 * **SDK & Raw HTTP Parallel Integration**: Utilizes the `capmonster_python` SDK client with automatic fallback to direct HTTP post-requests to guarantee API responsiveness.
 * **Automated Failure Refresh**: Clears inputs, submits, evaluates success, and auto-refreshes/retries on incorrect guesses (up to configurable retries limit).
@@ -59,12 +65,13 @@ with sync_playwright() as p:
 ```
 
 ### Master Orchestrator (Automatic Multi-Captcha Resolution)
-Use `resolve_any_captcha` to scan and resolve any known captcha pattern sequentially (OCR, reCAPTCHA, and sliders/jig-saws):
+Use `resolve_any_captcha` to scan and resolve any known captcha pattern sequentially (OCR, reCAPTCHA, sliders/jigsaws, and image grids):
 
 ```python
 from captcha_solver import resolve_any_captcha
 
 # Scans the active page and attempts solving up to 3 rounds of challenges
+# Resolution order: image-grid → reCAPTCHA v2 → OCR → jigsaw → slide-to-verify (with blind drag fallback)
 resolved = resolve_any_captcha(page, max_rounds=3)
 ```
 
@@ -93,6 +100,7 @@ graph TD
     C -->|reCAPTCHA v2 Checkbox| D[solve_recaptcha_v2]
     C -->|Alphanumeric OCR| E[solve_alphanumeric_captcha]
     C -->|Sliders / Slideways| F[solve_slide_to_verify / solve_jigsaw_puzzle_official]
+    C -->|Image Grid| G[solve_image_grid_captcha]
     
     D --> D1[Extract sitekey via DOM parsing]
     D1 --> D2[Request Token from CapMonster API]
@@ -104,6 +112,21 @@ graph TD
     E2 --> E3[Fill text field & submit]
     
     F --> F1[Grab background + piece screenshot]
-    F1 --> F2[CapMonster ComplexImageTask]
-    F2 --> F3[Drag Slider Knobs via Mouse simulation]
+    F1 --> F2{bg + piece found?}
+    F2 -->|Yes| F3[CapMonster ComplexImageTask]
+    F3 --> F4[Drag Slider Knobs via Mouse simulation]
+    F2 -->|No - Full Container| F5[CapMonster OCR offset fallback]
+    F5 --> F6{offset valid?}
+    F6 -->|Yes| F4
+    F6 -->|No - Pure drag slider| F7[Blind Full-Track Drag]
+    F7 --> F8[Measure knob + track bounding box]
+    F8 --> F9[Mouse drag knob to right edge]
+    F9 --> F10{Overlay gone from DOM?}
+    F10 -->|Yes| F11[SUCCESS]
+    F10 -->|No| F12[FAILED]
+    
+    G --> G1[Capture grid bounding box]
+    G1 --> G2[CapMonster ComplexImageTask 'recaptcha' class]
+    G2 --> G3[Map returned indices to X/Y coordinates]
+    G3 --> G4[Perform targeted clicks on the grid]
 ```

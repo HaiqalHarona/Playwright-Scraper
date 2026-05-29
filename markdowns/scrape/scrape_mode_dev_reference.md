@@ -125,8 +125,9 @@ def scrape_item_data(page, url: str, config: dict | None = None) -> list[dict]
 ### Stage 1 — Navigate & paginate
 
 ```python
-# Navigate
+# Navigate & Sweep Captcha
 page.goto(url, wait_until="domcontentloaded")
+resolve_any_captcha(page)    # Sweep before parsing
 page.wait_for_timeout(3000)   # 3s DOM-settle
 
 # Per page — scroll to trigger lazy load
@@ -196,9 +197,12 @@ Detection order:
 
 CAPTCHA handling:
 ```python
-if page.query_selector("#nc_1_n1z") or "verification" in page.url:
-    page.wait_for_timeout(5000)
-    page.reload()
+if page.query_selector("#nc_1_n1z") or "verification" in page.url or page.query_selector("img[src*='captcha']"):
+    print("      [!] Hit CAPTCHA. Running automated solver...")
+    solved = resolve_any_captcha(page)
+    if not solved:
+        page.wait_for_timeout(5000)
+        page.reload()
 ```
 
 Between each detail page, applies `config['delay']` ms wait
