@@ -207,6 +207,10 @@ ACCOUNT_1_PASSWORD=mySecurePassword123
 
 **Proxy Settings (Optional):**
 - `PROXY_URL` - HTTP/HTTPS proxy URL if needed (leave empty if not using proxy)
+  - Format: `http://proxy.example.com:8080` or `https://proxy.example.com:8080`
+  - For authenticated proxies: `http://username:password@proxy.example.com:8080`
+  - The scheme (http://) is optional - if omitted, http:// will be prepended automatically
+  - Supports HTTP, HTTPS, and SOCKS5 proxies
 
 ### Step 3: Scraper Configuration (Optional)
 

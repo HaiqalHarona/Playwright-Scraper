@@ -1,10 +1,11 @@
 # captcha_solver.py
 import base64
 import os
+import random
 import time
 from typing import Any
 import requests  # type: ignore[import-untyped]
-from playwright.sync_api import Page
+from playwright.sync_api import Frame, Page
 
 # capmonster_python SDK (synchronous client — no asyncio needed)
 try:
@@ -425,6 +426,343 @@ def solve_image_grid_captcha(page: Page, max_rounds: int = 5) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Baxia / Lazada "Please slide to verify" (unusual traffic modal)
+# ---------------------------------------------------------------------------
+
+_BAXIA_SLIDE_PROMPT_SELECTORS = [
+    "text=Please slide to verify",
+    "text=slide to verify",
+    "div:has-text('Please slide to verify')",
+    "div:has-text('unusual traffic')",
+    "[class*='baxia'] :text('slide')",
+]
+
+_BAXIA_KNOB_SELECTORS = [
+    "#nc_1_n1z",
+    "[class*='btn_slide']",
+    "[class*='btn-slide']",
+    "[class*='slide-btn']",
+    "[class*='drag-btn']",
+    "[class*='slider-knob']",
+    ".slider-button",
+    "[class*='nc_scale'] span",
+    "[class*='nc_iconfont']",
+    "[class*='slider'] span",
+    "[class*='slide'] button",
+    "[class*='verify'] span",
+]
+
+_BAXIA_TRACK_SELECTORS = [
+    ".nc_scale",
+    "[class*='nc_scale']",
+    "[class*='nc-container']",
+    "[class*='slide-verify']",
+    "[class*='slider-track']",
+    "[class*='verify-bar']",
+    "[class*='slide']",
+]
+
+
+def _baxia_overlay_visible(page: Page) -> bool:
+    """True if Lazada Baxia / unusual-traffic modal is still on screen."""
+    overlay_selectors = [
+        "[class*='baxia-dialog']",
+        ".baxia-dialog",
+        "#baxia-dialog-content",
+        "iframe#baxia-dialog-content",
+    ]
+    for sel in overlay_selectors:
+        try:
+            loc = page.locator(sel).first
+            if loc.count() > 0 and loc.is_visible():
+                return True
+        except Exception:
+            pass
+    for frame in page.frames:
+        try:
+            url = frame.url.lower()
+            if any(k in url for k in ("punish", "baxia", "_____tmd_____")):
+                if frame.locator("text=/slide to verify/i").count() > 0:
+                    return True
+        except Exception:
+            pass
+    return False
+
+
+def _context_has_slide_prompt(ctx: Page | Frame) -> bool:
+    for sel in _BAXIA_SLIDE_PROMPT_SELECTORS:
+        try:
+            loc = ctx.locator(sel).first
+            if loc.count() > 0 and loc.is_visible():
+                return True
+        except Exception:
+            pass
+    try:
+        return bool(
+            ctx.evaluate(
+                """
+                () => {
+                    const t = (document.body && document.body.innerText || '').toLowerCase();
+                    return t.includes('please slide to verify')
+                        || t.includes('slide to verify')
+                        || t.includes('unusual traffic');
+                }
+                """
+            )
+        )
+    except Exception:
+        return False
+
+
+def _find_knob_and_track(ctx: Page | Frame) -> tuple[Any, Any] | None:
+    knob = None
+    for sel in _BAXIA_KNOB_SELECTORS:
+        try:
+            loc = ctx.locator(sel)
+            for i in range(min(loc.count(), 6)):
+                el = loc.nth(i)
+                if not el.is_visible():
+                    continue
+                box = el.bounding_box()
+                if not box:
+                    continue
+                if box["width"] > box["height"] * 4:
+                    continue
+                knob = el
+                break
+            if knob:
+                break
+        except Exception:
+            pass
+
+    if not knob:
+        return None
+
+    track = None
+    for sel in _BAXIA_TRACK_SELECTORS:
+        try:
+            loc = ctx.locator(sel).first
+            if loc.count() > 0 and loc.is_visible():
+                tbox = loc.bounding_box()
+                if tbox and tbox["width"] > 120:
+                    track = loc
+                    break
+        except Exception:
+            pass
+
+    return (knob, track)
+
+
+def _drag_slider_elements(
+    page: Page,
+    knob: Any,
+    track: Any | None,
+    offset_x: int,
+    challenge_width: float | None = None,
+) -> bool:
+    """Drag a known knob/track pair using a CapMonster pixel offset."""
+    box = knob.bounding_box()
+    if not box:
+        return False
+
+    track_width = None
+    if track is not None:
+        try:
+            if track.count() > 0:
+                tbox = track.bounding_box()
+                if tbox:
+                    track_width = tbox["width"]
+        except Exception:
+            pass
+
+    x_start = box["x"] + box["width"] / 2
+    y_start = box["y"] + box["height"] / 2
+    drag_distance = int(offset_x)
+
+    if challenge_width and track_width and challenge_width > 0:
+        scaled = int((offset_x / challenge_width) * track_width)
+        if scaled > 0:
+            drag_distance = scaled
+
+    if track_width:
+        drag_distance = max(5, min(drag_distance, int(track_width - 6)))
+
+    page.mouse.move(x_start, y_start)
+    page.mouse.down()
+    page.mouse.move(x_start + drag_distance, y_start, steps=24)
+    time.sleep(0.15)
+    page.mouse.up()
+    return True
+
+
+def _try_capmonster_baxia_slide(page: Page, knob: Any, track: Any | None) -> bool:
+    """Submit Baxia slider to CapMonster (track + knob images), then drag to returned offset."""
+    if not os.getenv("CAPMONSTER_CLOUD"):
+        return False
+
+    try:
+        bg_el = track if track is not None else knob
+        try:
+            if track is not None and track.count() == 0:
+                bg_el = knob
+        except Exception:
+            bg_el = knob
+
+        bg_box = bg_el.bounding_box()
+        challenge_width = bg_box["width"] if bg_box else None
+
+        bg_b64 = base64.b64encode(bg_el.screenshot(timeout=6000)).decode("utf-8")
+        piece_b64 = base64.b64encode(knob.screenshot(timeout=6000)).decode("utf-8")
+
+        print("[Captcha Solver] Baxia slide: sending track+knob to CapMonster...")
+        offset_x = _capmonster_solve_slider(bg_b64, piece_b64)
+
+        if not offset_x:
+            print("[Captcha Solver] CapMonster returned no slider offset for Baxia slide.")
+            return False
+
+        print(f"[Captcha Solver] Baxia slide: CapMonster offset {offset_x}px — dragging...")
+        return _drag_slider_elements(page, knob, track, offset_x, challenge_width)
+    except Exception as e:
+        print(f"[Captcha Solver] CapMonster Baxia slide error: {e}")
+        return False
+
+
+def _perform_full_track_drag(page: Page, knob: Any, track: Any | None = None) -> bool:
+    """
+    Drag slider knob to the far right of its track.
+    Used for Lazada Baxia 'Please slide to verify' (no CapMonster offset needed).
+    """
+    box = knob.bounding_box()
+    if not box:
+        return False
+
+    track_box = None
+    if track is not None:
+        try:
+            if track.count() > 0:
+                track_box = track.bounding_box()
+        except Exception:
+            track_box = None
+
+    if not track_box:
+        try:
+            track_box = knob.evaluate(
+                """
+                (el) => {
+                    let p = el.parentElement;
+                    for (let i = 0; i < 8 && p; i++) {
+                        const r = p.getBoundingClientRect();
+                        if (r.width > 180 && r.height > 20 && r.height < 120) {
+                            return { x: r.x, y: r.y, width: r.width, height: r.height };
+                        }
+                        p = p.parentElement;
+                    }
+                    return null;
+                }
+                """
+            )
+        except Exception:
+            track_box = None
+
+    x_start = box["x"] + box["width"] / 2
+    y_start = box["y"] + box["height"] / 2
+
+    if track_box:
+        drag_distance = int(
+            track_box["x"] + track_box["width"] - x_start - max(8, box["width"] * 0.15)
+        )
+    else:
+        drag_distance = 260
+
+    drag_distance = max(40, drag_distance)
+    print(f"[Captcha Solver] Baxia full-track drag: {drag_distance}px")
+
+    page.mouse.move(x_start, y_start)
+    time.sleep(random.uniform(0.05, 0.12))
+    page.mouse.down()
+    time.sleep(random.uniform(0.04, 0.1))
+
+    steps = 32
+    for step in range(1, steps + 1):
+        t = step / steps
+        eased = t * (2 - t)
+        x = x_start + drag_distance * eased
+        y = y_start + random.uniform(-1.5, 1.5)
+        page.mouse.move(x, y, steps=1)
+        time.sleep(random.uniform(0.008, 0.025))
+
+    time.sleep(random.uniform(0.08, 0.15))
+    page.mouse.up()
+    return True
+
+
+def solve_baxia_slide_verify(page: Page, max_attempts: int = 3) -> bool:
+    """
+    Solve Lazada/Alibaba Baxia 'Please slide to verify' modal (unusual traffic).
+    Tries CapMonster slider API first; falls back to human-like full-track drag.
+    """
+    contexts: list[Page | Frame] = [page]
+    contexts.extend(page.frames)
+
+    if not any(_context_has_slide_prompt(ctx) for ctx in contexts):
+        if not _baxia_overlay_visible(page):
+            return False
+
+    print("[Captcha Solver] Baxia 'slide to verify' modal detected.")
+    has_capmonster = bool(os.getenv("CAPMONSTER_CLOUD"))
+
+    for attempt in range(1, max_attempts + 1):
+        print(f"[Captcha Solver] Baxia slide attempt {attempt}/{max_attempts}...")
+        dragged = False
+        used_capmonster = False
+
+        for ctx in contexts:
+            if not _context_has_slide_prompt(ctx) and not _baxia_overlay_visible(page):
+                continue
+
+            pair = _find_knob_and_track(ctx)
+            if not pair:
+                continue
+
+            knob, track = pair
+            try:
+                knob.scroll_into_view_if_needed(timeout=3000)
+            except Exception:
+                pass
+
+            if has_capmonster and _try_capmonster_baxia_slide(page, knob, track):
+                dragged = True
+                used_capmonster = True
+                break
+
+            print(
+                "[Captcha Solver] CapMonster Baxia slide failed or unavailable — using manual full-track drag..."
+            )
+            if _perform_full_track_drag(page, knob, track):
+                dragged = True
+                break
+
+        if not dragged:
+            print("[Captcha Solver] Baxia slide: knob/track not found in any frame.")
+            time.sleep(0.8)
+            continue
+
+        time.sleep(1.5)
+
+        if not _baxia_overlay_visible(page) and not any(
+            _context_has_slide_prompt(ctx) for ctx in contexts
+        ):
+            method = "CapMonster" if used_capmonster else "manual drag"
+            print(f"[Captcha Solver] ✓ Baxia slide-to-verify passed ({method}).")
+            return True
+
+        print("[Captcha Solver] Baxia slide attempt did not clear overlay; retrying...")
+
+    return False
+
+
 def _drag_slider(
     page: Page,
     knob_selector: str,
@@ -752,22 +1090,11 @@ def solve_slide_to_verify(page: Page, slider_selector: str = "#nc_1_n1z") -> boo
             )
             return False
 
-        # No separate piece found — screenshot full container and try OCR as offset
+        # No jigsaw pieces — Baxia / "Please slide to verify" (CapMonster first, manual fallback).
         print(
-            "[Captcha Solver] No separate piece element — screenshotting full container..."
+            "[Captcha Solver] No bg+piece — delegating to Baxia slide solver (CapMonster → manual)..."
         )
-        try:
-            container_b64 = base64.b64encode(container.screenshot()).decode("utf-8")
-            offset_str = _solve_via_raw_http(container_b64, task_type="ImageToTextTask")
-            if offset_str:
-                try:
-                    offset_x = int(offset_str.strip())
-                    return _drag_slider(page, slider_selector, offset_x)
-                except (ValueError, TypeError):
-                    pass
-        except Exception as ocr_err:
-            print(f"[Captcha Solver] Container OCR fallback failed: {ocr_err}")
-        return False
+        return solve_baxia_slide_verify(page, max_attempts=2)
 
     except Exception as e:
         print(f"[Captcha Solver] solve_slide_to_verify exception: {e}")
@@ -1138,6 +1465,11 @@ _CAPTCHA_TRIGGER_SELECTORS = [
     "[class*='captcha-slider']",
     "[class*='slide-verify']",
     "[class*='nocaptcha']",
+    "[class*='baxia']",
+    "[class*='baxia-dialog']",
+    "#baxia-dialog-content",
+    "div:has-text('Please slide to verify')",
+    "div:has-text('unusual traffic')",
     "[class*='jigsaw']",
     "img[src*='captcha']",
     "img[src*='getCaptcha']",
@@ -1170,11 +1502,11 @@ def resolve_any_captcha(page: Page, max_rounds: int = 3) -> bool:
     via CapMonster. Loops up to max_rounds in case stacked captchas appear.
     Returns True if at least one challenge was resolved.
     """
-    if not os.getenv("CAPMONSTER_CLOUD"):
+    has_capmonster = bool(os.getenv("CAPMONSTER_CLOUD"))
+    if not has_capmonster:
         print(
-            "[Captcha Solver] WARNING: CAPMONSTER_CLOUD key not set — captcha solving disabled."
+            "[Captcha Solver] WARNING: CAPMONSTER_CLOUD key not set — API solvers disabled; Baxia slide still enabled."
         )
-        return False
 
     resolved_any = False
 
@@ -1189,7 +1521,27 @@ def resolve_any_captcha(page: Page, max_rounds: int = 3) -> bool:
         except Exception:
             pass
 
-        # 2. reCAPTCHA / click-grid image challenges
+        # 2. Baxia "Please slide to verify" (no CapMonster required)
+        try:
+            if solve_baxia_slide_verify(page):
+                round_resolved = True
+        except Exception as e:
+            print(f"[Captcha Solver] Baxia slide sweep error: {e}")
+
+        if round_resolved:
+            resolved_any = True
+            time.sleep(1.5)
+            continue
+
+        if not has_capmonster:
+            if not _baxia_overlay_visible(page):
+                break
+            print(
+                f"[Captcha Solver] Round {round_num}: Baxia still visible; retrying slide..."
+            )
+            continue
+
+        # 3. reCAPTCHA / click-grid image challenges
         try:
             if solve_image_grid_captcha(page):
                 round_resolved = True
@@ -1201,7 +1553,7 @@ def resolve_any_captcha(page: Page, max_rounds: int = 3) -> bool:
             time.sleep(1.5)
             continue
 
-        # 3. reCAPTCHA v2 checkbox ("I'm not a robot")
+        # 4. reCAPTCHA v2 checkbox ("I'm not a robot")
         try:
             if solve_recaptcha_v2(page):
                 round_resolved = True
@@ -1213,7 +1565,7 @@ def resolve_any_captcha(page: Page, max_rounds: int = 3) -> bool:
             time.sleep(1.5)
             continue
 
-        # 4. Alphanumeric / image OCR captcha
+        # 5. Alphanumeric / image OCR captcha
         try:
             if solve_alphanumeric_captcha(page):
                 round_resolved = True
@@ -1225,16 +1577,20 @@ def resolve_any_captcha(page: Page, max_rounds: int = 3) -> bool:
             time.sleep(1.5)
             continue
 
-        # 5. Detect active slider / jigsaw trigger
+        # 6. Detect active slider / jigsaw trigger (page + Baxia iframe)
         active_slider_sel = None
-        for sel in _CAPTCHA_TRIGGER_SELECTORS:
-            try:
-                el = page.locator(sel).first
-                if el.count() > 0 and el.is_visible():
-                    active_slider_sel = sel
-                    break
-            except Exception:
-                pass
+        search_contexts: list[Page | Frame] = [page, *page.frames]
+        for ctx in search_contexts:
+            for sel in _CAPTCHA_TRIGGER_SELECTORS:
+                try:
+                    el = ctx.locator(sel).first
+                    if el.count() > 0 and el.is_visible():
+                        active_slider_sel = sel
+                        break
+                except Exception:
+                    pass
+            if active_slider_sel:
+                break
 
         if not active_slider_sel:
             break

@@ -313,9 +313,21 @@ def start_browser_and_route(
     total_accounts       — total parallel accounts for screen placement
     """
     proxy_url = os.getenv("PROXY_URL", None)
-    proxy_config: ProxySettings | None = (
-        ProxySettings(server=proxy_url) if proxy_url else None
-    )
+    proxy_config: ProxySettings | None = None
+    if proxy_url:
+        if not proxy_url.startswith("http://") and not proxy_url.startswith("https://") and not proxy_url.startswith("socks5://"):
+            proxy_url = "http://" + proxy_url
+        from urllib.parse import urlparse
+        parsed = urlparse(proxy_url)
+        if parsed.username and parsed.password:
+            # Build server URL with port only if port is specified
+            if parsed.port:
+                server = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
+            else:
+                server = f"{parsed.scheme}://{parsed.hostname}"
+            proxy_config = {"server": server, "username": parsed.username, "password": parsed.password}
+        else:
+            proxy_config = {"server": proxy_url}
 
     # Buy / Buy_Scrape = headful (user can see & intervene); scrape = headless to save resources.
     headless_mode = action not in ("buy", "buy_scrape")

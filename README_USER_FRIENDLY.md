@@ -302,7 +302,13 @@ PROXY_URL=
 **What this is:** A proxy server to route your internet connection through
 **When to use:** If you want to hide your real IP address or if you're getting blocked
 **Most users:** Leave this empty
-**If you have a proxy:** Enter it like `http://proxy.example.com:8080`
+**If you have a proxy:** Enter it in one of these formats:
+- `http://proxy.example.com:8080` (no authentication)
+- `http://username:password@proxy.example.com:8080` (with authentication)
+- `https://proxy.example.com:443` (HTTPS proxy)
+- `socks5://proxy.example.com:1080` (SOCKS5 proxy)
+
+**Note:** The `http://` part is optional - if you just type `proxy.example.com:8080`, it will automatically add `http://`
 
 #### Scraper Settings (For Scrape & Buy_Scrape Modes)
 

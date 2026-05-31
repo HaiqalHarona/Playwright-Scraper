@@ -1,56 +1,103 @@
 # main.py
+import atexit
 import builtins
 import os
 import re
-import sys
 import threading
 from datetime import datetime, timedelta
 from bot_logic import start_browser_and_route
 
-# --- Override global print to prefix logs with thread names and save to file ---
+# --- Logging: one file per run under data/logs/, console shows key lines only ---
 _original_print = builtins.print
-_log_file = open("bot_debug.log", "a", encoding="utf-8")
+_log_file = None
+_log_path: str | None = None
+
+_CONSOLE_PREFIXES = (
+    "[Main]",
+    "[Sniper]",
+    "[Traffic Cop]",
+    "[Captcha Solver]",
+    "[Warning]",
+    "[ERROR]",
+)
+
+_CONSOLE_KEYWORDS = (
+    "HUMAN NEEDS TO SOLVE",
+    "[URGENT]",
+    "UNIVERSAL SHOPPING",
+    "Supported Stores",
+    "Current Action",
+    "Release Time",
+    "Refresh Lead",
+    "Active Accounts",
+    "FINAL STATUS",
+    "EXECUTION SUMMARY",
+    "Account ",
+    "Starting parallel",
+    "Target URL",
+    "TEST MODE",
+    "Exception",
+    "CRASHED",
+    "Logging to",
+)
+
+
+def _setup_run_log() -> str:
+    """Create data/logs/run_<timestamp>.log for this execution."""
+    global _log_file, _log_path
+    log_dir = os.path.join("data", "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    run_id = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    _log_path = os.path.join(log_dir, f"run_{run_id}.log")
+    _log_file = open(_log_path, "a", encoding="utf-8")
+    return _log_path
+
+
+def _close_run_log() -> None:
+    global _log_file
+    if _log_file and not _log_file.closed:
+        try:
+            _log_file.close()
+        except Exception:
+            pass
+    _log_file = None
+
 
 def custom_print(*args, **kwargs):
     t_name = threading.current_thread().name
     sep = kwargs.get("sep", " ")
     end = kwargs.get("end", "\n")
     msg = sep.join(str(arg) for arg in args)
-    
+
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     prefix = f"[{t_name}] " if t_name.startswith("Account-") else ""
     log_line = f"[{timestamp}] {prefix}{msg}"
-    
-    try:
-        _log_file.write(log_line + end)
-        _log_file.flush()
-    except Exception:
-        pass
 
-    important_keywords = [
-        "HUMAN NEEDS TO SOLVE",
-        "[URGENT]",
-        "UNIVERSAL SHOPPING",
-        "Supported Stores",
-        "Current Action",
-        "Release Time",
-        "Refresh Lead",
-        "Active Accounts",
-        "FINAL STATUS",
-        "EXECUTION SUMMARY",
-        "Account ",
-        "Starting parallel",
-        "Target URL",
-        "TEST MODE",
-        "Warning",
-        "Exception",
-        "CRASHED"
-    ]
-    
-    if any(kw in msg for kw in important_keywords) or "===" in msg or ">>>" in msg:
-        _original_print(f"{prefix}{msg}", **{k: v for k, v in kwargs.items() if k not in ["sep", "end"]}, end=end)
+    if _log_file and not _log_file.closed:
+        try:
+            _log_file.write(log_line + end)
+            _log_file.flush()
+        except Exception:
+            pass
+
+    show_console = (
+        any(msg.startswith(p) for p in _CONSOLE_PREFIXES)
+        or any(kw in msg for kw in _CONSOLE_KEYWORDS)
+        or "===" in msg
+        or ">>>" in msg
+        or "✓" in msg
+        or "ERROR:" in msg
+    )
+    if show_console:
+        _original_print(
+            f"{prefix}{msg}",
+            **{k: v for k, v in kwargs.items() if k not in ("sep", "end")},
+            end=end,
+        )
+
 
 builtins.print = custom_print
+atexit.register(_close_run_log)
 
 
 def load_env(env_path=".env"):
@@ -115,6 +162,9 @@ def display_menu(store, action, release_time, refresh_lead, num_accounts):
 
 
 def main():
+    log_path = _setup_run_log()
+    _original_print(f"[Main] Logging to {log_path}")
+
     # Load configuration
     load_env()
 

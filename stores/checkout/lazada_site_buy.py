@@ -277,144 +277,86 @@ def _dismiss_overlays(page: Page) -> None:
 
 
 def _click_place_order(page: Page, max_retries: int = 3) -> None:
-    """Click Place Order button with comprehensive debug logging and retry logic."""
+    """Click Place Order button with retry logic."""
+
+    candidates = [
+        page.get_by_text("PLACE ORDER NOW"),
+        page.locator(
+            "button:has-text('Place Order Now'), button:has-text('PLACE ORDER NOW'), "
+            "button:has-text('place order now')"
+        ),
+        page.get_by_role(
+            "button",
+            name=re.compile(
+                r"(place\s*order|proceed\s*to\s*pay|pay\s*now|pay|checkout|submit|confirm)",
+                re.I,
+            ),
+        ),
+        page.locator(SEL_PLACE_ORDER),
+        page.locator(
+            "button:has-text('pay'), button:has-text('Pay'), button:has-text('PAY')"
+        ),
+        page.locator("button[type='submit']"),
+    ]
 
     for attempt in range(max_retries):
         try:
             if attempt > 0:
-                print(f"[Sniper] Place Order click attempt {attempt + 1}/{max_retries}")
+                print(f"[Sniper] Place Order retry {attempt + 1}/{max_retries}")
                 time.sleep(2)
-                page.wait_for_load_state("networkidle", timeout=5000)
-
-            print("[Sniper] === DEBUG: Place Order Button Detection ===")
-            print(f"[Sniper] Current URL: {page.url}")
-
-            # Log all buttons on page for debugging
-            try:
-                all_buttons = page.locator("button").all()
-                print(f"[Sniper] Total buttons found on page: {len(all_buttons)}")
-                for i, btn in enumerate(all_buttons[:10]):  # First 10 buttons
-                    try:
-                        text = btn.inner_text()[:50] if btn.inner_text() else ""
-                        classes = btn.get_attribute("class") or ""
-                        visible = btn.is_visible()
-                        enabled = btn.is_enabled()
-                        print(
-                            f"[Sniper]   Button {i + 1}: '{text}' | visible={visible} | enabled={enabled} | class={classes[:50]}"
-                        )
-                    except Exception:
-                        pass
-            except Exception as e:
-                print(f"[Sniper] Could not enumerate buttons: {e}")
-
-            # Try multiple candidate strategies
-            candidates = [
-                (
-                    "Exact Text 'PLACE ORDER NOW' (any element)",
-                    page.get_by_text("PLACE ORDER NOW"),
-                ),
-                (
-                    "Exact Text 'Place Order Now'",
-                    page.locator(
-                        "button:has-text('Place Order Now'), button:has-text('PLACE ORDER NOW'), button:has-text('place order now')"
-                    ),
-                ),
-                (
-                    "Role-based",
-                    page.get_by_role(
-                        "button",
-                        name=re.compile(
-                            r"(place\s*order|proceed\s*to\s*pay|pay\s*now|pay|checkout|submit|confirm)",
-                            re.I,
-                        ),
-                    ),
-                ),
-                ("CSS Selector", page.locator(SEL_PLACE_ORDER)),
-                (
-                    "Text Contains 'pay'",
-                    page.locator(
-                        "button:has-text('pay'), button:has-text('Pay'), button:has-text('PAY')"
-                    ),
-                ),
-                ("Submit Type", page.locator("button[type='submit']")),
-            ]
+                try:
+                    page.wait_for_load_state("networkidle", timeout=5000)
+                except Exception:
+                    pass
 
             last_error: Exception | None = None
 
-            for strategy_name, candidate in candidates:
-                print(f"[Sniper] Trying strategy: {strategy_name}")
+            for candidate in candidates:
                 count = candidate.count()
-                print(f"[Sniper]   Found {count} matches")
-
                 if count == 0:
                     continue
 
-                # Try each match
                 for i in range(count):
                     try:
                         btn = candidate.nth(i)
-                        text = btn.inner_text()[:50] if btn.count() > 0 else "N/A"
-                        visible = btn.is_visible() if btn.count() > 0 else False
-                        enabled = btn.is_enabled() if btn.count() > 0 else False
-
-                        print(
-                            f"[Sniper]   Match {i + 1}: '{text}' | visible={visible} | enabled={enabled}"
-                        )
-
-                        if not visible:
-                            print(f"[Sniper]   Attempting to scroll into view...")
-                            if not _scroll_until_visible(page, candidate.nth(i)):
-                                print(f"[Sniper]   Still not visible after scrolling")
+                        if btn.count() == 0 or not btn.is_visible():
+                            if not _scroll_until_visible(page, btn):
                                 continue
 
                         btn.scroll_into_view_if_needed()
                         time.sleep(0.5)
 
                         try:
-                            print(f"[Sniper]   Attempting normal click...")
                             btn.click(timeout=_ELEMENT_TIMEOUT)
-                            print(
-                                f"[Sniper] ✓ Place Order clicked successfully using {strategy_name}"
-                            )
+                            print("[Sniper] Place Order clicked.")
                             return
                         except Exception as exc:
-                            print(f"[Sniper]   Normal click failed: {exc}")
                             last_error = exc
                             try:
-                                print(f"[Sniper]   Attempting force click...")
                                 btn.click(force=True, timeout=_ELEMENT_TIMEOUT)
-                                print(
-                                    f"[Sniper] ✓ Place Order clicked (force) using {strategy_name}"
-                                )
+                                print("[Sniper] Place Order clicked (force).")
                                 return
                             except Exception as force_exc:
-                                print(f"[Sniper]   Force click failed: {force_exc}")
                                 last_error = force_exc
-
                     except Exception as e:
-                        print(f"[Sniper]   Error processing match {i + 1}: {e}")
                         last_error = e
 
-            # If we get here, this attempt failed
-            print(
-                f"[Sniper] === Attempt {attempt + 1} failed - all strategies unsuccessful ==="
-            )
+            print(f"[Sniper] Place Order not found (attempt {attempt + 1}/{max_retries}).")
             if attempt < max_retries - 1:
-                print(f"[Sniper] Retrying in 2 seconds...")
-            else:
-                # Final attempt failed
-                if last_error:
-                    raise last_error
-                raise PlaywrightTimeout(
-                    "Place Order button not found or not clickable after trying all strategies"
-                )
+                continue
+            if last_error:
+                raise last_error
+            raise PlaywrightTimeout(
+                "Place Order button not found or not clickable after trying all strategies"
+            )
 
+        except PlaywrightTimeout:
+            raise
         except Exception as e:
             if attempt < max_retries - 1:
-                print(f"[Sniper] Attempt {attempt + 1} crashed: {e}. Retrying...")
+                print(f"[Sniper] Place Order click failed: {e}. Retrying...")
                 continue
-            else:
-                raise
+            raise
 
 
 def _check_and_recover_login(page: Page, context, email: str, password: str) -> bool:
