@@ -7,6 +7,25 @@ import threading
 from datetime import datetime, timedelta
 from bot_logic import start_browser_and_route
 
+# WebSocket client for webtop virtual desktop connection
+try:
+    from websocket_client import init_websocket_client, send_status, send_log
+
+    WEBSOCKET_IMPORT_SUCCESS = True
+except ImportError:
+    WEBSOCKET_IMPORT_SUCCESS = False
+
+    # Define dummy functions if import fails
+    def init_websocket_client():
+        return None
+
+    def send_status(status, details=None):
+        pass
+
+    def send_log(level, message, context=None):
+        pass
+
+
 # --- Logging: one file per run under data/logs/, console shows key lines only ---
 _original_print = builtins.print
 _log_file = None
@@ -168,6 +187,21 @@ def main():
     # Load configuration
     load_env()
 
+    # Initialize WebSocket client for webtop virtual desktop connection
+    wss_client = init_websocket_client()
+    if wss_client:
+        _original_print(
+            "[Main] WebSocket client initialized for webtop virtual desktop"
+        )
+        send_status(
+            "bot_starting",
+            {
+                "store": os.getenv("STORE_NAME", "Lazada"),
+                "action": os.getenv("ACTION", "buy"),
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
+
     # Parse common configuration
     store = os.getenv("STORE_NAME", "Lazada")
     action = os.getenv("ACTION", "buy")
@@ -214,6 +248,11 @@ def main():
                     )
 
     accounts = parse_accounts(require_url=(action != "buy_scrape"))
+
+    # Send status update via WebSocket
+    send_status(
+        "accounts_parsed", {"count": len(accounts), "action": action, "store": store}
+    )
 
     display_menu(store, action, release_time, refresh_lead, len(accounts))
 
@@ -300,6 +339,9 @@ def main():
             print(f"Exception raised in execution: {e}")
 
     print("\nStarting parallel browser windows...")
+    # Send status update via WebSocket
+    send_status("threads_starting", {"count": len(accounts), "action": action})
+
     for idx, config in accounts.items():
         t = threading.Thread(
             target=run_account_thread, args=(idx, config), name=f"Account-{idx}"
@@ -310,6 +352,16 @@ def main():
     # Wait for all threads to finish
     for t in threads:
         t.join()
+
+    # Send completion status via WebSocket
+    send_status(
+        "execution_complete",
+        {
+            "results": statuses,
+            "total_accounts": len(accounts),
+            "successful": sum(1 for s in statuses.values() if "CRASHED" not in str(s)),
+        },
+    )
 
     # Print a premium, structured results summary
     print("\n" + "=" * 52)

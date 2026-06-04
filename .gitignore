@@ -9,4 +9,4 @@ __pycache__/
 data/scrapes/*
 task.json
 .vscode
-bot_debug.log
+bot_debug.log``

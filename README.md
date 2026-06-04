@@ -212,6 +212,18 @@ ACCOUNT_1_PASSWORD=mySecurePassword123
   - The scheme (http://) is optional - if omitted, http:// will be prepended automatically
   - Supports HTTP, HTTPS, and SOCKS5 proxies
 
+**WebSocket Connection to Webtop Virtual Desktop (Optional):**
+- `WSS_ENABLED` - Set to `true` to enable WebSocket connection to remote webtop virtual desktop (default: `false`)
+- `WSS_URL` - WebSocket Secure URL for connecting to webtop virtual desktop (e.g., `wss://your-server.tailscale-name.ts.net:8080/ws`)
+- `WSS_AUTH_TOKEN` - Authentication token if required by the WebSocket server (optional)
+- `WSS_RECONNECT_INTERVAL` - Seconds between reconnection attempts if connection is lost (default: `10`)
+- `WSS_HEARTBEAT_INTERVAL` - Seconds between heartbeat messages to keep connection alive (default: `30`)
+
+**Using Tailscale DNS IPs:**
+- With Tailscale, you can use MagicDNS names like `your-server.tailscale-name.ts.net`
+- The IP is already public within your Tailscale network (no public internet exposure needed)
+- The bot will automatically connect and send real-time status updates to your webtop virtual desktop
+
 ### Step 3: Scraper Configuration (Optional)
 
 These settings apply when `ACTION=scrape` or `ACTION=buy_scrape`. They control how the bot monitors products and collects data. All have sensible defaults and none are required — the scraper works out of the box.
